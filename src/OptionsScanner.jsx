@@ -7212,6 +7212,1012 @@ function RiskOverlayWalkForwardPanel({
   );
 }
 
+
+/*
+  =========================================================
+  NESTED RISK WALK-FORWARD
+  =========================================================
+*/
+
+function NestedRiskWalkForwardPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const summary =
+    result?.summary ??
+    {};
+
+  const protectedOos =
+    summary.protected_oos ??
+    {};
+
+  const unprotectedOos =
+    summary.unprotected_oos ??
+    {};
+
+  const folds =
+    Array.isArray(
+      result?.folds
+    )
+      ? result.folds
+      : [];
+
+  const baseFrequency =
+    Array.isArray(
+      result?.base_selection_frequency
+    )
+      ? result.base_selection_frequency
+      : [];
+
+  const overlayFrequency =
+    Array.isArray(
+      result?.overlay_selection_frequency
+    )
+      ? result.overlay_selection_frequency
+      : [];
+
+  const byTicker =
+    Array.isArray(
+      result?.protected_oos_by_ticker
+    )
+      ? result.protected_oos_by_ticker
+      : [];
+
+  const gate =
+    result?.robustness_gate ??
+    null;
+
+  const dataset =
+    Array.isArray(
+      result?.protected_oos_dataset
+    )
+      ? result.protected_oos_dataset
+      : [];
+
+  const pct =
+    (
+      value,
+      digits = 2
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const plainPct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function directionLabel(
+    value
+  ) {
+    if (
+      value ===
+      "bullish_only"
+    ) {
+      return "Bullish only";
+    }
+
+    if (
+      value ===
+      "bearish_only"
+    ) {
+      return "Bearish only";
+    }
+
+    return "Both";
+  }
+
+  function overlayLabel(
+    params
+  ) {
+    if (!params) {
+      return "—";
+    }
+
+    return (
+      "Stop " +
+      params.stopLossPct +
+      "% · Target " +
+      (
+        params.profitTargetPct ===
+        null
+          ? "None"
+          : params.profitTargetPct +
+            "%"
+      ) +
+      " · Hold ≤" +
+      params.maxHoldSessions +
+      " · Risk " +
+      params.riskBudgetPct +
+      "%"
+    );
+  }
+
+  function downloadDataset() {
+    if (!dataset.length) {
+      return;
+    }
+
+    const headers =
+      Object.keys(
+        dataset[0]
+      );
+
+    const esc =
+      (value) => {
+        if (
+          value ===
+            null ||
+          value ===
+            undefined
+        ) {
+          return "";
+        }
+
+        const text =
+          String(
+            value
+          );
+
+        if (
+          text.includes(",") ||
+          text.includes('"') ||
+          text.includes("\n")
+        ) {
+          return (
+            '"' +
+            text.replaceAll(
+              '"',
+              '""'
+            ) +
+            '"'
+          );
+        }
+
+        return text;
+      };
+
+    const csv = [
+      headers.join(","),
+      ...dataset.map(
+        (row) =>
+          headers
+            .map(
+              (header) =>
+                esc(
+                  row[
+                    header
+                  ]
+                )
+            )
+            .join(",")
+      ),
+    ].join("\n");
+
+    const blob =
+      new Blob(
+        [csv],
+        {
+          type:
+            "text/csv;charset=utf-8",
+        }
+      );
+
+    const url =
+      URL.createObjectURL(
+        blob
+      );
+
+    const link =
+      document.createElement(
+        "a"
+      );
+
+    link.href =
+      url;
+
+    link.download =
+      "nested-risk-walk-forward-oos.csv";
+
+    document.body.appendChild(
+      link
+    );
+
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      url
+    );
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-orange-500/20 bg-orange-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-orange-400">
+              Nested risk walk-forward
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Separate strategy selection, risk calibration, and unseen testing
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Signal rules and risk controls are calibrated on different historical windows before either reaches the next test block.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              downloadDataset
+            }
+            disabled={
+              !dataset.length
+            }
+            className="rounded border border-cyan-400/40 px-3 py-2 text-[9px] uppercase tracking-widest text-cyan-300 disabled:opacity-30"
+          >
+            Download nested OOS CSV
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-2 md:grid-cols-4">
+          {[
+            "Training history",
+            "Strategy validation",
+            "Risk calibration",
+            "Unseen test",
+          ].map(
+            (
+              label,
+              index
+            ) => (
+              <div
+                key={
+                  label
+                }
+                className={
+                  index ===
+                  3
+                    ? "rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3"
+                    : "rounded-lg border border-zinc-800 bg-black/25 p-3"
+                }
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                  Step {index + 1}
+                </div>
+
+                <div className="mt-1 text-xs font-bold text-zinc-200">
+                  {label}
+                </div>
+              </div>
+            )
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-9">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Scope
+            </div>
+
+            <select
+              value={
+                settings.scope
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    scope:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value="selected">
+                One ticker
+              </option>
+
+              <option value="all">
+                All scanner tickers
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              disabled={
+                settings.scope ===
+                "all"
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white disabled:opacity-40"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          {[
+            {
+              key:
+                "lookbackDays",
+
+              label:
+                "Lookback",
+            },
+
+            {
+              key:
+                "trainDays",
+
+              label:
+                "Train",
+            },
+
+            {
+              key:
+                "strategyValidationDays",
+
+              label:
+                "Strategy val",
+            },
+
+            {
+              key:
+                "riskCalibrationDays",
+
+              label:
+                "Risk cal",
+            },
+
+            {
+              key:
+                "testDays",
+
+              label:
+                "Test",
+            },
+
+            {
+              key:
+                "costBps",
+
+              label:
+                "Friction bps",
+            },
+          ].map(
+            (field) => (
+              <label
+                key={
+                  field.key
+                }
+                className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                  {field.label}
+                </div>
+
+                <input
+                  type="number"
+                  min="0"
+                  value={
+                    settings[
+                      field.key
+                    ]
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setSettings(
+                      (current) => ({
+                        ...current,
+
+                        [field.key]:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                />
+              </label>
+            )
+          )}
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !tickers.length
+              }
+              className="w-full rounded border border-orange-400/50 bg-orange-400/10 px-4 py-2.5 text-[10px] font-bold text-orange-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {loading
+                ? "RUNNING NESTED TEST..."
+                : connected
+                  ? "RUN NESTED RISK"
+                  : "CONNECT ROBINHOOD"}
+            </button>
+          </div>
+        </div>
+
+        <label className="mt-3 flex items-center gap-2 text-[9px] text-zinc-500">
+          <input
+            type="checkbox"
+            checked={
+              settings.nonOverlapping
+            }
+            onChange={(
+              event
+            ) =>
+              setSettings(
+                (current) => ({
+                  ...current,
+
+                  nonOverlapping:
+                    event.target.checked,
+                })
+              )
+            }
+          />
+
+          Prevent overlapping same-ticker proxy trades.
+        </label>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Nested-risk error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.strategy_selection}{" "}
+              {result.methodology?.risk_selection}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.test}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              {[
+                {
+                  label:
+                    "Completed folds",
+
+                  value:
+                    summary.completed_folds ??
+                    0,
+                },
+
+                {
+                  label:
+                    "Positive folds",
+
+                  value:
+                    plainPct(
+                      summary.positive_fold_rate
+                    ),
+                },
+
+                {
+                  label:
+                    "Protected trades",
+
+                  value:
+                    protectedOos.trades ??
+                    0,
+                },
+
+                {
+                  label:
+                    "Protected avg",
+
+                  value:
+                    pct(
+                      protectedOos.average_return_pct
+                    ),
+                },
+
+                {
+                  label:
+                    "Protected PF",
+
+                  value:
+                    ratio(
+                      protectedOos.profit_factor
+                    ),
+                },
+
+                {
+                  label:
+                    "Protected max DD",
+
+                  value:
+                    pct(
+                      protectedOos.max_drawdown_pct
+                    ),
+                },
+
+                {
+                  label:
+                    "Unprotected max DD",
+
+                  value:
+                    pct(
+                      unprotectedOos.max_drawdown_pct
+                    ),
+                },
+
+                {
+                  label:
+                    "DD improvement",
+
+                  value:
+                    pct(
+                      summary.drawdown_improvement_pct_points
+                    ),
+                },
+              ].map(
+                (item) => (
+                  <div
+                    key={
+                      item.label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {item.label}
+                    </div>
+
+                    <div className="mt-1 font-mono text-sm font-bold text-zinc-100">
+                      {item.value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            {gate && (
+              <div
+                className={
+                  gate.status ===
+                  "pass"
+                    ? "mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4"
+                    : "mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.03] p-4"
+                }
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                      Nested robustness gate
+                    </div>
+
+                    <div className="mt-1 text-sm font-bold text-white">
+                      {gate.passed_count}/{gate.total_checks} checks passed
+                    </div>
+                  </div>
+
+                  <div
+                    className={
+                      gate.status ===
+                      "pass"
+                        ? "rounded border border-emerald-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300"
+                        : "rounded border border-red-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-red-300"
+                    }
+                  >
+                    {String(
+                      gate.status
+                    ).toUpperCase()}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {(gate.checks ?? []).map(
+                    (check) => (
+                      <div
+                        key={
+                          check.id
+                        }
+                        className={
+                          check.passed
+                            ? "rounded border border-emerald-500/15 bg-emerald-500/[0.02] p-3"
+                            : "rounded border border-red-500/20 bg-red-500/[0.03] p-3"
+                        }
+                      >
+                        <div
+                          className={
+                            check.passed
+                              ? "text-[9px] uppercase tracking-widest text-emerald-400"
+                              : "text-[9px] uppercase tracking-widest text-red-400"
+                          }
+                        >
+                          {check.passed ? "PASS" : "FAIL"} · {check.label}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-500">
+                          {typeof check.actual ===
+                            "number"
+                            ? check.actual.toFixed(
+                                2
+                              )
+                            : check.actual ??
+                              "—"}{" "}
+                          · target {check.threshold}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Nested fold results
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1600px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-right">
+                        Fold
+                      </th>
+
+                      <th className="px-3 py-2 text-left">
+                        Base rule
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Strat Val N
+                      </th>
+
+                      <th className="px-3 py-2 text-left">
+                        Risk overlay
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Risk Cal N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Risk Cal Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test DD
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Unprotected Avg
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {folds.map(
+                      (fold) => (
+                        <tr
+                          key={
+                            fold.fold
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td className="px-3 py-2 text-right">
+                            {fold.fold}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {fold.selected_base
+                              ? directionLabel(
+                                  fold.selected_base.parameters?.direction_mode
+                                ) +
+                                " · " +
+                                fold.selected_base.parameters?.hold_sessions +
+                                "d · RSI " +
+                                fold.selected_base.parameters?.rsi_profile +
+                                " · " +
+                                fold.selected_base.parameters?.required_signals +
+                                "/3"
+                              : "—"}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {fold.selected_base?.strategy_validation?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-left text-orange-300">
+                            {overlayLabel(
+                              fold.selected_overlay?.parameters
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {fold.selected_overlay?.risk_calibration?.trades ?? fold.risk_calibration_trade_count ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {pct(
+                              fold.selected_overlay?.risk_calibration?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {fold.selected_overlay?.test?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {pct(
+                              fold.selected_overlay?.test?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              fold.selected_overlay?.test?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-red-300">
+                            {pct(
+                              fold.selected_overlay?.test?.max_drawdown_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-violet-300">
+                            {pct(
+                              fold.unprotected_test?.average_return_pct
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Base-rule selection frequency
+                </div>
+
+                <div className="mt-2 space-y-2">
+                  {baseFrequency.map(
+                    (row) => (
+                      <div
+                        key={
+                          row.id
+                        }
+                        className="flex items-center justify-between gap-3 border-b border-zinc-900 pb-2 text-[9px]"
+                      >
+                        <span className="font-mono text-zinc-300">
+                          {row.id}
+                        </span>
+
+                        <span className="font-mono text-orange-300">
+                          {row.count}
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Risk-overlay selection frequency
+                </div>
+
+                <div className="mt-2 space-y-2">
+                  {overlayFrequency.map(
+                    (row) => (
+                      <div
+                        key={
+                          row.id
+                        }
+                        className="flex items-center justify-between gap-3 border-b border-zinc-900 pb-2 text-[9px]"
+                      >
+                        <span className="font-mono text-zinc-300">
+                          {overlayLabel(
+                            row.parameters
+                          )}
+                        </span>
+
+                        <span className="font-mono text-orange-300">
+                          {row.count}
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Protected unseen by ticker
+                </div>
+
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="py-1.5 text-left">
+                          Ticker
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          N
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          Avg
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          PF
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {byTicker.map(
+                        (row) => (
+                          <tr
+                            key={
+                              row.symbol
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="py-1.5 text-left text-white">
+                              {row.symbol}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {row.summary?.trades ?? 0}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {pct(
+                                row.summary?.average_return_pct
+                              )}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {ratio(
+                                row.summary?.profit_factor
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              A fold is skipped when no risk overlay has at least five calibration trades, positive average return, and profit factor of at least 1.05. Skipping is preferable to forcing a risk rule that failed its own calibration window.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -7779,6 +8785,63 @@ export default function OptionsScanner() {
 
       validationDays:
         90,
+
+      testDays:
+        60,
+
+      costBps:
+        10,
+
+      nonOverlapping:
+        true,
+    });
+
+  const [
+    nestedRiskOpen,
+    setNestedRiskOpen,
+  ] =
+    useState(false);
+
+  const [
+    nestedRiskResult,
+    setNestedRiskResult,
+  ] =
+    useState(null);
+
+  const [
+    nestedRiskLoading,
+    setNestedRiskLoading,
+  ] =
+    useState(false);
+
+  const [
+    nestedRiskError,
+    setNestedRiskError,
+  ] =
+    useState("");
+
+  const [
+    nestedRiskSettings,
+    setNestedRiskSettings,
+  ] =
+    useState({
+      scope:
+        "all",
+
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        1095,
+
+      trainDays:
+        365,
+
+      strategyValidationDays:
+        60,
+
+      riskCalibrationDays:
+        30,
 
       testDays:
         60,
@@ -8836,6 +9899,105 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runNestedRisk =
+    useCallback(
+      async () => {
+        setNestedRiskLoading(
+          true
+        );
+
+        setNestedRiskError(
+          ""
+        );
+
+        try {
+          const symbols =
+            nestedRiskSettings.scope ===
+            "all"
+              ? tickers
+              : [
+                  nestedRiskSettings.symbol,
+                ];
+
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/nested-risk-walk-forward",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbols,
+
+                    lookbackDays:
+                      Number(
+                        nestedRiskSettings.lookbackDays
+                      ),
+
+                    trainDays:
+                      Number(
+                        nestedRiskSettings.trainDays
+                      ),
+
+                    strategyValidationDays:
+                      Number(
+                        nestedRiskSettings.strategyValidationDays
+                      ),
+
+                    riskCalibrationDays:
+                      Number(
+                        nestedRiskSettings.riskCalibrationDays
+                      ),
+
+                    testDays:
+                      Number(
+                        nestedRiskSettings.testDays
+                      ),
+
+                    costBps:
+                      Number(
+                        nestedRiskSettings.costBps
+                      ) ||
+                      0,
+
+                    nonOverlapping:
+                      !!nestedRiskSettings.nonOverlapping,
+                  }),
+              }
+            );
+
+          setNestedRiskResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setNestedRiskError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setNestedRiskLoading(
+            false
+          );
+        }
+      },
+      [
+        nestedRiskSettings,
+        tickers,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -9544,6 +10706,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setNestedRiskOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                nestedRiskOpen
+                  ? "rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-mono text-orange-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Nested Risk
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -10122,6 +11301,37 @@ Do not invent missing values.`
           }
           onRun={
             runRiskOverlay
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* NESTED RISK WALK-FORWARD */}
+
+      {nestedRiskOpen && (
+        <NestedRiskWalkForwardPanel
+          tickers={
+            tickers
+          }
+          settings={
+            nestedRiskSettings
+          }
+          setSettings={
+            setNestedRiskSettings
+          }
+          result={
+            nestedRiskResult
+          }
+          loading={
+            nestedRiskLoading
+          }
+          error={
+            nestedRiskError
+          }
+          onRun={
+            runNestedRisk
           }
           connected={
             robinhoodStatus.connected
