@@ -173,6 +173,81 @@ function formatDataAge(seconds) {
   )}h ago`;
 }
 
+function formatBytes(value) {
+  const n =
+    toNumber(
+      value
+    );
+
+  if (n === null) {
+    return "—";
+  }
+
+  if (n < 1024) {
+    return `${n} B`;
+  }
+
+  if (n < 1024 * 1024) {
+    return `${(
+      n /
+      1024
+    ).toFixed(
+      1
+    )} KB`;
+  }
+
+  return `${(
+    n /
+    (
+      1024 *
+      1024
+    )
+  ).toFixed(
+    1
+  )} MB`;
+}
+
+function formatUptime(seconds) {
+  const n =
+    toNumber(
+      seconds
+    );
+
+  if (n === null) {
+    return "—";
+  }
+
+  if (n < 60) {
+    return `${Math.floor(
+      n
+    )}s`;
+  }
+
+  if (n < 3600) {
+    return `${Math.floor(
+      n /
+      60
+    )}m`;
+  }
+
+  const hours =
+    Math.floor(
+      n /
+      3600
+    );
+
+  const minutes =
+    Math.floor(
+      (
+        n %
+        3600
+      ) /
+      60
+    );
+
+  return `${hours}h ${minutes}m`;
+}
+
 function buildPlanStatusConditions(plan, liveData) {
   if (!plan || !liveData) {
     return [];
@@ -2716,6 +2791,30 @@ export default function OptionsScanner() {
   ] =
     useState("syncing");
 
+  const [
+    systemHealthOpen,
+    setSystemHealthOpen,
+  ] =
+    useState(false);
+
+  const [
+    systemHealth,
+    setSystemHealth,
+  ] =
+    useState(null);
+
+  const [
+    systemHealthLoading,
+    setSystemHealthLoading,
+  ] =
+    useState(false);
+
+  const [
+    systemHealthError,
+    setSystemHealthError,
+  ] =
+    useState("");
+
   const scanInProgressRef =
     useRef(false);
 
@@ -3302,6 +3401,69 @@ export default function OptionsScanner() {
     notificationsEnabled,
     notificationPermission,
     tickerData,
+  ]);
+
+  const refreshSystemHealth =
+    useCallback(
+      async () => {
+        setSystemHealthLoading(
+          true
+        );
+
+        setSystemHealthError(
+          ""
+        );
+
+        try {
+          const health =
+            await fetchJson(
+              `${PROXY_BASE}/scanner/health`
+            );
+
+          setSystemHealth(
+            health
+          );
+
+          return health;
+
+        } catch (error) {
+          setSystemHealthError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setSystemHealthLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  useEffect(() => {
+    if (
+      !systemHealthOpen
+    ) {
+      return;
+    }
+
+    refreshSystemHealth();
+
+    const timer =
+      window.setInterval(
+        refreshSystemHealth,
+        30000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, [
+    systemHealthOpen,
+    refreshSystemHealth,
   ]);
 
   /*
@@ -3910,6 +4072,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setSystemHealthOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-mono ${
+                systemHealthOpen
+                  ? "border-violet-500/40 bg-violet-500/10 text-violet-300"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              System Health
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -4105,6 +4284,245 @@ Do not invent missing values.`
           </div>
         </div>
       </header>
+
+      {/* SYSTEM HEALTH */}
+
+      {systemHealthOpen && (
+        <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+          <div className="mx-auto max-w-7xl rounded-xl border border-violet-500/20 bg-violet-500/[0.02] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-violet-400">
+                  System health
+                </div>
+
+                <div className="mt-1 text-lg font-bold text-white">
+                  Scanner runtime status
+                </div>
+
+                <div className="mt-1 text-[10px] text-zinc-500">
+                  Frontend, Robinhood connection, persistence, refresh loop, notification permission, and backend state file.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  refreshSystemHealth
+                }
+                disabled={
+                  systemHealthLoading
+                }
+                className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-violet-400/40 hover:text-violet-300 disabled:opacity-40"
+              >
+                {systemHealthLoading
+                  ? "Refreshing..."
+                  : "Refresh Health"}
+              </button>
+            </div>
+
+            {systemHealthError ? (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+                Health endpoint unavailable: {systemHealthError}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <Stat
+                  label="Robinhood"
+                  value={
+                    robinhoodStatus.connected
+                      ? "CONNECTED"
+                      : "DISCONNECTED"
+                  }
+                  color={
+                    robinhoodStatus.connected
+                      ? "text-emerald-300"
+                      : "text-red-300"
+                  }
+                />
+
+                <Stat
+                  label="Storage"
+                  value={
+                    persistentStateStatus ===
+                    "synced"
+                      ? "SYNCED"
+                      : persistentStateStatus ===
+                          "syncing"
+                        ? "SYNCING"
+                        : "LOCAL ONLY"
+                  }
+                  color={
+                    persistentStateStatus ===
+                    "synced"
+                      ? "text-violet-300"
+                      : persistentStateStatus ===
+                          "syncing"
+                        ? "text-zinc-300"
+                        : "text-amber-300"
+                  }
+                />
+
+                <Stat
+                  label="Notifications"
+                  value={
+                    notificationPermission ===
+                    "denied"
+                      ? "BLOCKED"
+                      : notificationsEnabled &&
+                          notificationPermission ===
+                          "granted"
+                        ? "ON"
+                        : notificationPermission ===
+                            "unsupported"
+                          ? "N/A"
+                          : "OFF"
+                  }
+                  color={
+                    notificationsEnabled &&
+                    notificationPermission ===
+                    "granted"
+                      ? "text-sky-300"
+                      : notificationPermission ===
+                          "denied"
+                        ? "text-red-300"
+                        : "text-zinc-300"
+                  }
+                />
+
+                <Stat
+                  label="Auto Refresh"
+                  value={
+                    autoRefreshEnabled
+                      ? `ON · ${autoRefreshSeconds}s`
+                      : "OFF"
+                  }
+                  color={
+                    autoRefreshEnabled
+                      ? "text-emerald-300"
+                      : "text-zinc-300"
+                  }
+                />
+
+                <Stat
+                  label="Last Scan"
+                  value={
+                    dataIsStale
+                      ? `STALE · ${formatDataAge(
+                          dataAgeSeconds
+                        )}`
+                      : formatDataAge(
+                          dataAgeSeconds
+                        )
+                  }
+                  color={
+                    dataIsStale
+                      ? "text-amber-300"
+                      : dataUpdatedAt
+                        ? "text-sky-300"
+                        : "text-zinc-300"
+                  }
+                />
+
+                <Stat
+                  label="Backend Uptime"
+                  value={formatUptime(
+                    systemHealth
+                      ?.backend
+                      ?.uptime_seconds
+                  )}
+                  color="text-zinc-200"
+                />
+              </div>
+            )}
+
+            {!systemHealthError && (
+              <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <Stat
+                  label="State File"
+                  value={
+                    systemHealth
+                      ?.storage
+                      ?.exists &&
+                    systemHealth
+                      ?.storage
+                      ?.readable
+                      ? "READY"
+                      : systemHealthLoading
+                        ? "CHECKING"
+                        : "NOT READY"
+                  }
+                  color={
+                    systemHealth
+                      ?.storage
+                      ?.exists &&
+                    systemHealth
+                      ?.storage
+                      ?.readable
+                      ? "text-emerald-300"
+                      : "text-amber-300"
+                  }
+                />
+
+                <Stat
+                  label="State File Size"
+                  value={formatBytes(
+                    systemHealth
+                      ?.storage
+                      ?.size_bytes
+                  )}
+                />
+
+                <Stat
+                  label="Persisted Plans"
+                  value={
+                    systemHealth
+                      ?.storage
+                      ?.saved_plan_count ??
+                    "—"
+                  }
+                  color="text-emerald-300"
+                />
+
+                <Stat
+                  label="Persisted Comparisons"
+                  value={
+                    systemHealth
+                      ?.storage
+                      ?.saved_comparison_count ??
+                    "—"
+                  }
+                  color="text-indigo-300"
+                />
+              </div>
+            )}
+
+            {!systemHealthError && (
+              <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+                Backend state file:{" "}
+                <span className="font-mono text-zinc-300">
+                  {systemHealth
+                    ?.storage
+                    ?.file ??
+                    ".data/scanner-state.json"}
+                </span>
+                {" · "}
+                Last backend state update:{" "}
+                <span className="font-mono text-zinc-300">
+                  {systemHealth
+                    ?.storage
+                    ?.state_updated_at
+                    ? new Date(
+                        systemHealth.storage.state_updated_at
+                      ).toLocaleString()
+                    : "—"}
+                </span>
+                . Notification permission remains browser-specific even though the scanner preference is persisted.
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* TICKERS */}
 
