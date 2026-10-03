@@ -5264,6 +5264,98 @@ function WalkForwardLabPanel({
     return "Both";
   }
 
+  function downloadOosDataset() {
+    if (!learningDataset.length) {
+      return;
+    }
+
+    const headers =
+      Object.keys(
+        learningDataset[0]
+      );
+
+    const esc =
+      (value) => {
+        if (
+          value === null ||
+          value === undefined
+        ) {
+          return "";
+        }
+
+        const text =
+          String(value);
+
+        if (
+          text.includes(",") ||
+          text.includes('"') ||
+          text.includes("\n")
+        ) {
+          return (
+            '"' +
+            text.replaceAll(
+              '"',
+              '""'
+            ) +
+            '"'
+          );
+        }
+
+        return text;
+      };
+
+    const csv = [
+      headers.join(","),
+      ...learningDataset.map(
+        (row) =>
+          headers
+            .map(
+              (header) =>
+                esc(
+                  row[header]
+                )
+            )
+            .join(",")
+      ),
+    ].join("\n");
+
+    const blob =
+      new Blob(
+        [csv],
+        {
+          type:
+            "text/csv;charset=utf-8",
+        }
+      );
+
+    const url =
+      URL.createObjectURL(
+        blob
+      );
+
+    const link =
+      document.createElement(
+        "a"
+      );
+
+    link.href =
+      url;
+
+    link.download =
+      "walk-forward-oos-learning-dataset.csv";
+
+    document.body.appendChild(
+      link
+    );
+
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      url
+    );
+  }
+
   return (
     <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
       <div className="mx-auto max-w-7xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-4">
@@ -6194,12 +6286,29 @@ function WalkForwardLabPanel({
             </div>
 
             <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.025] p-3">
-              <div className="text-[9px] uppercase tracking-widest text-cyan-400">
-                Out-of-sample learning dataset
-              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest text-cyan-400">
+                    Out-of-sample learning dataset
+                  </div>
 
-              <div className="mt-1 text-sm font-bold text-white">
-                {learningDataset.length} unseen row{learningDataset.length === 1 ? "" : "s"} available
+                  <div className="mt-1 text-sm font-bold text-white">
+                    {learningDataset.length} unseen row{learningDataset.length === 1 ? "" : "s"} available
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    downloadOosDataset
+                  }
+                  disabled={
+                    !learningDataset.length
+                  }
+                  className="rounded border border-cyan-400/40 px-3 py-1.5 text-[9px] uppercase tracking-widest text-cyan-300 disabled:opacity-30"
+                >
+                  Download CSV
+                </button>
               </div>
 
               <div className="mt-2 text-[9px] leading-relaxed text-zinc-500">
