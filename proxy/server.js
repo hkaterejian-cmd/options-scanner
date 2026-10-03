@@ -813,6 +813,152 @@ app.get(
   }
 );
 
+app.get(
+  "/scanner/health",
+
+  async (_req, res) => {
+    let fileExists =
+      false;
+
+    let fileReadable =
+      false;
+
+    let fileSizeBytes =
+      0;
+
+    let fileModifiedAt =
+      null;
+
+    let state =
+      defaultScannerState();
+
+    try {
+      const stats =
+        await fs.stat(
+          SCANNER_STATE_FILE
+        );
+
+      fileExists =
+        stats.isFile();
+
+      fileSizeBytes =
+        stats.size;
+
+      fileModifiedAt =
+        stats.mtime
+          ?.toISOString?.() ??
+        null;
+
+    } catch (error) {
+      if (
+        error?.code !==
+        "ENOENT"
+      ) {
+        console.error(
+          "[Scanner health stat]",
+          safeErrorMessage(
+            error
+          )
+        );
+      }
+    }
+
+    try {
+      state =
+        await readScannerState();
+
+      fileReadable =
+        true;
+
+    } catch (error) {
+      console.error(
+        "[Scanner health read]",
+        safeErrorMessage(
+          error
+        )
+      );
+    }
+
+    return res.json({
+      status:
+        "ok",
+
+      backend: {
+        port:
+          PORT,
+
+        uptime_seconds:
+          Math.floor(
+            process.uptime()
+          ),
+
+        started_at:
+          new Date(
+            Date.now() -
+            process.uptime() *
+              1000
+          ).toISOString(),
+      },
+
+      robinhood: {
+        connected:
+          !!robinhoodClient,
+
+        oauthPending,
+      },
+
+      storage: {
+        mode:
+          "backend-file",
+
+        file:
+          ".data/scanner-state.json",
+
+        exists:
+          fileExists,
+
+        readable:
+          fileReadable,
+
+        size_bytes:
+          fileSizeBytes,
+
+        modified_at:
+          fileModifiedAt,
+
+        state_updated_at:
+          state.updatedAt,
+
+        saved_plan_count:
+          state.savedPlans.length,
+
+        saved_comparison_count:
+          Object.keys(
+            state.savedComparisons ||
+            {}
+          ).length,
+      },
+
+      preferences: {
+        autoRefresh:
+          state.preferences
+            ?.autoRefresh ??
+          {
+            enabled: false,
+            seconds: 60,
+          },
+
+        notifications:
+          state.preferences
+            ?.notifications ??
+          {
+            enabled: false,
+          },
+      },
+    });
+  }
+);
+
 app.post(
   "/scanner/state/migrate",
 
@@ -1066,6 +1212,13 @@ app.get(
       status:
         "ok",
 
+      backend: {
+        uptime_seconds:
+          Math.floor(
+            process.uptime()
+          ),
+      },
+
       robinhood: {
         connected:
           !!robinhoodClient,
@@ -1074,6 +1227,14 @@ app.get(
 
         endpoint:
           ROBINHOOD_MCP_URL,
+      },
+
+      storage: {
+        active:
+          true,
+
+        endpoint:
+          "/scanner/health",
       },
 
       anthropic: {
