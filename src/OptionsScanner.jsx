@@ -23,6 +23,7 @@ const DEFAULT_TICKERS = [
 
 const STORAGE_KEY = "options-scanner-tickers-robinhood-v2";
 const SAVED_PLANS_STORAGE_KEY = "optionsScannerSavedStrategyPlansV1";
+const SAVED_COMPARISONS_STORAGE_KEY = "optionsScannerSavedComparisonsV1";
 const AUTO_REFRESH_STORAGE_KEY = "optionsScannerAutoRefreshV1";
 const NOTIFICATION_STORAGE_KEY = "optionsScannerNotificationsV1";
 
@@ -512,6 +513,44 @@ function saveTickers(tickers) {
     );
   } catch (error) {
     console.warn("Failed to save tickers:", error);
+  }
+}
+
+function readLocalJson(
+  key,
+  fallback
+) {
+  try {
+    const raw =
+      window.localStorage.getItem(
+        key
+      );
+
+    if (!raw) {
+      return fallback;
+    }
+
+    return JSON.parse(
+      raw
+    );
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalJson(
+  key,
+  value
+) {
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify(
+        value
+      )
+    );
+  } catch {
+    // Ignore restrictive browser storage modes.
   }
 }
 
@@ -2665,6 +2704,18 @@ export default function OptionsScanner() {
       return window.Notification.permission;
     });
 
+  const [
+    persistentStateReady,
+    setPersistentStateReady,
+  ] =
+    useState(false);
+
+  const [
+    persistentStateStatus,
+    setPersistentStateStatus,
+  ] =
+    useState("syncing");
+
   const scanInProgressRef =
     useRef(false);
 
@@ -2817,6 +2868,201 @@ export default function OptionsScanner() {
     );
 
   useEffect(() => {
+    let cancelled =
+      false;
+
+    async function hydratePersistentState() {
+      setPersistentStateStatus(
+        "syncing"
+      );
+
+      const localPlans =
+        loadSavedStrategyPlans();
+
+      const localComparisons =
+        readLocalJson(
+          SAVED_COMPARISONS_STORAGE_KEY,
+          {}
+        );
+
+      const localAuto =
+        readLocalJson(
+          AUTO_REFRESH_STORAGE_KEY,
+          {
+            enabled:
+              autoRefreshEnabled,
+
+            seconds:
+              autoRefreshSeconds,
+          }
+        );
+
+      const localNotifications =
+        readLocalJson(
+          NOTIFICATION_STORAGE_KEY,
+          {
+            enabled:
+              notificationsEnabled,
+          }
+        );
+
+      try {
+        const merged =
+          await fetchJson(
+            `${PROXY_BASE}/scanner/state/migrate`,
+            {
+              method:
+                "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify({
+                  savedPlans:
+                    localPlans,
+
+                  savedComparisons:
+                    localComparisons,
+
+                  preferences: {
+                    autoRefresh:
+                      localAuto,
+
+                    notifications:
+                      localNotifications,
+                  },
+                }),
+            }
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        writeLocalJson(
+          SAVED_PLANS_STORAGE_KEY,
+          Array.isArray(
+            merged?.savedPlans
+          )
+            ? merged.savedPlans
+            : []
+        );
+
+        writeLocalJson(
+          SAVED_COMPARISONS_STORAGE_KEY,
+          merged?.savedComparisons &&
+          typeof merged.savedComparisons ===
+            "object"
+            ? merged.savedComparisons
+            : {}
+        );
+
+        const remoteSeconds =
+          Number(
+            merged?.preferences
+              ?.autoRefresh
+              ?.seconds
+          );
+
+        const normalizedSeconds =
+          [
+            30,
+            60,
+            300,
+          ].includes(
+            remoteSeconds
+          )
+            ? remoteSeconds
+            : 60;
+
+        setAutoRefreshEnabled(
+          !!merged?.preferences
+            ?.autoRefresh
+            ?.enabled
+        );
+
+        setAutoRefreshSeconds(
+          normalizedSeconds
+        );
+
+        writeLocalJson(
+          AUTO_REFRESH_STORAGE_KEY,
+          {
+            enabled:
+              !!merged?.preferences
+                ?.autoRefresh
+                ?.enabled,
+
+            seconds:
+              normalizedSeconds,
+          }
+        );
+
+        const remoteNotificationsEnabled =
+          !!merged?.preferences
+            ?.notifications
+            ?.enabled;
+
+        const canEnableNotifications =
+          notificationPermission ===
+          "granted";
+
+        setNotificationsEnabled(
+          remoteNotificationsEnabled &&
+          canEnableNotifications
+        );
+
+        writeLocalJson(
+          NOTIFICATION_STORAGE_KEY,
+          {
+            enabled:
+              remoteNotificationsEnabled &&
+              canEnableNotifications,
+          }
+        );
+
+        setSavedPlansRevision(
+          (value) =>
+            value + 1
+        );
+
+        setPersistentStateStatus(
+          "synced"
+        );
+
+      } catch (error) {
+        if (!cancelled) {
+          console.warn(
+            "Backend state sync failed:",
+            error
+          );
+
+          setPersistentStateStatus(
+            "local-only"
+          );
+        }
+
+      } finally {
+        if (!cancelled) {
+          setPersistentStateReady(
+            true
+          );
+        }
+      }
+    }
+
+    hydratePersistentState();
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, []);
+
+  useEffect(() => {
     const refreshSavedPlans =
       () =>
         setSavedPlansRevision(
@@ -2864,39 +3110,84 @@ export default function OptionsScanner() {
   }, []);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        AUTO_REFRESH_STORAGE_KEY,
-        JSON.stringify({
-          enabled:
-            autoRefreshEnabled,
+    writeLocalJson(
+      AUTO_REFRESH_STORAGE_KEY,
+      {
+        enabled:
+          autoRefreshEnabled,
 
-          seconds:
-            autoRefreshSeconds,
-        })
-      );
-    } catch {
-      // Ignore restrictive browser storage modes.
+        seconds:
+          autoRefreshSeconds,
+      }
+    );
+
+    writeLocalJson(
+      NOTIFICATION_STORAGE_KEY,
+      {
+        enabled:
+          notificationsEnabled,
+      }
+    );
+
+    if (
+      !persistentStateReady
+    ) {
+      return;
     }
+
+    fetchJson(
+      `${PROXY_BASE}/scanner/state/preferences`,
+      {
+        method:
+          "PUT",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            preferences: {
+              autoRefresh: {
+                enabled:
+                  autoRefreshEnabled,
+
+                seconds:
+                  autoRefreshSeconds,
+              },
+
+              notifications: {
+                enabled:
+                  notificationsEnabled,
+              },
+            },
+          }),
+      }
+    )
+      .then(
+        () =>
+          setPersistentStateStatus(
+            "synced"
+          )
+      )
+      .catch(
+        (error) => {
+          console.warn(
+            "Preference persistence failed:",
+            error
+          );
+
+          setPersistentStateStatus(
+            "local-only"
+          );
+        }
+      );
   }, [
     autoRefreshEnabled,
     autoRefreshSeconds,
-  ]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        NOTIFICATION_STORAGE_KEY,
-        JSON.stringify({
-          enabled:
-            notificationsEnabled,
-        })
-      );
-    } catch {
-      // Ignore restrictive browser storage modes.
-    }
-  }, [
     notificationsEnabled,
+    persistentStateReady,
   ]);
 
   useEffect(() => {
@@ -3789,6 +4080,27 @@ Do not invent missing values.`
                       "granted"
                   ? "ON"
                   : "OFF"}
+            </span>
+
+            <span
+              className={
+                persistentStateStatus ===
+                  "synced"
+                  ? "text-violet-400"
+                  : persistentStateStatus ===
+                      "syncing"
+                    ? "text-zinc-500"
+                    : "text-amber-400"
+              }
+            >
+              Storage{" "}
+              {persistentStateStatus ===
+              "synced"
+                ? "SYNCED"
+                : persistentStateStatus ===
+                    "syncing"
+                  ? "SYNCING"
+                  : "LOCAL ONLY"}
             </span>
           </div>
         </div>
