@@ -6698,6 +6698,1461 @@ function SavedStrategyPlansPanel({
 }
 
 /* =========================================================
+   PAPER TRADE JOURNAL
+========================================================= */
+
+function PaperTradeJournal({
+  ticker,
+  expiration,
+  optionType,
+  longContract,
+  shortContract,
+  economics,
+  spot,
+  marketContext,
+  fullChainAnalysis,
+  contracts,
+  onSelectExpiration,
+}) {
+  const [
+    paperTrades,
+    setPaperTrades,
+  ] = useState([]);
+
+  const [
+    quantity,
+    setQuantity,
+  ] = useState(1);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+  const [
+    hydrated,
+    setHydrated,
+  ] = useState(false);
+
+  useEffect(() => {
+    let cancelled =
+      false;
+
+    async function load() {
+      setLoading(
+        true
+      );
+
+      setError(
+        ""
+      );
+
+      try {
+        const state =
+          await fetchJson(
+            `${PROXY_BASE}/scanner/state`
+          );
+
+        if (
+          !cancelled
+        ) {
+          setPaperTrades(
+            Array.isArray(
+              state?.paperTrades
+            )
+              ? state.paperTrades
+              : []
+          );
+
+          setHydrated(
+            true
+          );
+        }
+
+      } catch (err) {
+        if (
+          !cancelled
+        ) {
+          setError(
+            err.message
+          );
+        }
+
+      } finally {
+        if (
+          !cancelled
+        ) {
+          setLoading(
+            false
+          );
+        }
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, []);
+
+  function persistTrades(
+    nextTrades
+  ) {
+    setPaperTrades(
+      nextTrades
+    );
+
+    persistScannerStateSection(
+      "paper-trades",
+      {
+        paperTrades:
+          nextTrades,
+      }
+    ).catch(
+      (err) => {
+        console.warn(
+          "Paper-trade persistence failed:",
+          err
+        );
+
+        setError(
+          err.message
+        );
+      }
+    );
+  }
+
+  function economicsForTrade(
+    trade
+  ) {
+    if (
+      trade.expiration !==
+      expiration
+    ) {
+      return null;
+    }
+
+    const currentLong =
+      contracts.find(
+        (contract) =>
+          contract.type ===
+            trade.optionType &&
+          contract.strike ===
+            Number(
+              trade.longStrike
+            )
+      );
+
+    const currentShort =
+      contracts.find(
+        (contract) =>
+          contract.type ===
+            trade.optionType &&
+          contract.strike ===
+            Number(
+              trade.shortStrike
+            )
+      );
+
+    if (
+      !currentLong ||
+      !currentShort
+    ) {
+      return null;
+    }
+
+    return calculateSpreadEconomics({
+      name:
+        "Paper trade refresh",
+
+      bias:
+        trade.optionType ===
+        "call"
+          ? "Bullish"
+          : "Bearish",
+
+      legs: [
+        {
+          action:
+            `Long ${trade.optionType}`,
+
+          side:
+            "long",
+
+          contract:
+            currentLong,
+        },
+
+        {
+          action:
+            `Short ${trade.optionType}`,
+
+          side:
+            "short",
+
+          contract:
+            currentShort,
+        },
+      ],
+    });
+  }
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !contracts.length
+    ) {
+      return;
+    }
+
+    setPaperTrades(
+      (current) => {
+        let changed =
+          false;
+
+        const now =
+          new Date().toISOString();
+
+        const next =
+          current.map(
+            (trade) => {
+              if (
+                trade.status !==
+                  "open" ||
+                trade.ticker !==
+                  ticker ||
+                trade.expiration !==
+                  expiration
+              ) {
+                return trade;
+              }
+
+              const currentEconomics =
+                economicsForTrade(
+                  trade
+                );
+
+              const currentMidpoint =
+                currentEconomics
+                  ?.midpointDebit ??
+                null;
+
+              const entryPrice =
+                toNumber(
+                  trade.entryPrice
+                );
+
+              const tradeQuantity =
+                Math.max(
+                  1,
+                  Number(
+                    trade.quantity ||
+                    1
+                  )
+                );
+
+              if (
+                currentMidpoint ===
+                  null ||
+                entryPrice ===
+                  null
+              ) {
+                return trade;
+              }
+
+              const unrealizedPL =
+                (
+                  currentMidpoint -
+                  entryPrice
+                ) *
+                100 *
+                tradeQuantity;
+
+              const entryCost =
+                entryPrice *
+                100 *
+                tradeQuantity;
+
+              const unrealizedReturnPct =
+                entryCost >
+                0
+                  ? (
+                      unrealizedPL /
+                      entryCost
+                    ) *
+                    100
+                  : null;
+
+              const maxFavorablePL =
+                Math.max(
+                  toNumber(
+                    trade.maxFavorablePL
+                  ) ??
+                    0,
+                  unrealizedPL
+                );
+
+              const maxAdversePL =
+                Math.min(
+                  toNumber(
+                    trade.maxAdversePL
+                  ) ??
+                    0,
+                  unrealizedPL
+                );
+
+              const shouldUpdate =
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.currentMidpoint
+                    ) ??
+                    0
+                  ) -
+                  currentMidpoint
+                ) >
+                  0.0001 ||
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.currentSpot
+                    ) ??
+                    0
+                  ) -
+                  (
+                    toNumber(
+                      spot
+                    ) ??
+                    0
+                  )
+                ) >
+                  0.0001 ||
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.unrealizedPL
+                    ) ??
+                    0
+                  ) -
+                  unrealizedPL
+                ) >
+                  0.01;
+
+              if (
+                !shouldUpdate
+              ) {
+                return trade;
+              }
+
+              changed =
+                true;
+
+              return {
+                ...trade,
+
+                currentMidpoint,
+
+                currentSpot:
+                  toNumber(
+                    spot
+                  ),
+
+                unrealizedPL,
+
+                unrealizedReturnPct,
+
+                maxFavorablePL,
+
+                maxAdversePL,
+
+                currentRsi:
+                  toNumber(
+                    marketContext?.rsi
+                  ),
+
+                currentMacdHistogram:
+                  toNumber(
+                    marketContext
+                      ?.macd
+                      ?.histogram
+                  ),
+
+                updatedAt:
+                  now,
+              };
+            }
+          );
+
+        if (
+          changed
+        ) {
+          persistScannerStateSection(
+            "paper-trades",
+            {
+              paperTrades:
+                next,
+            }
+          ).catch(
+            (err) =>
+              console.warn(
+                "Paper-trade mark update failed:",
+                err
+              )
+          );
+
+          return next;
+        }
+
+        return current;
+      }
+    );
+  }, [
+    hydrated,
+    contracts,
+    ticker,
+    expiration,
+    spot,
+    marketContext?.rsi,
+    marketContext?.macd?.histogram,
+  ]);
+
+  const tickerTrades =
+    useMemo(
+      () =>
+        paperTrades
+          .filter(
+            (trade) =>
+              trade.ticker ===
+              ticker
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                b.openedAt ||
+                0
+              ).getTime() -
+              new Date(
+                a.openedAt ||
+                0
+              ).getTime()
+          ),
+      [
+        paperTrades,
+        ticker,
+      ]
+    );
+
+  const openTrades =
+    tickerTrades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closedTrades =
+    tickerTrades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const unrealizedTotal =
+    openTrades.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        (
+          toNumber(
+            trade.unrealizedPL
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const realizedTotal =
+    closedTrades.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        (
+          toNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const wins =
+    closedTrades.filter(
+      (trade) =>
+        (
+          toNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ) >
+        0
+    ).length;
+
+  const winRate =
+    closedTrades.length >
+    0
+      ? (
+          wins /
+          closedTrades.length
+        ) *
+        100
+      : null;
+
+  const exactOpenTrade =
+    longContract &&
+    shortContract
+      ? openTrades.find(
+          (trade) =>
+            trade.expiration ===
+              expiration &&
+            trade.optionType ===
+              optionType &&
+            Number(
+              trade.longStrike
+            ) ===
+              Number(
+                longContract.strike
+              ) &&
+            Number(
+              trade.shortStrike
+            ) ===
+              Number(
+                shortContract.strike
+              )
+        ) ??
+        null
+      : null;
+
+  function openPaperTrade() {
+    if (
+      !economics ||
+      !longContract ||
+      !shortContract
+    ) {
+      return;
+    }
+
+    const entryPrice =
+      economics.midpointDebit ??
+      economics.entryDebit;
+
+    if (
+      entryPrice ===
+        null ||
+      entryPrice <=
+        0
+    ) {
+      setError(
+        "A positive spread midpoint or debit is required to open a paper trade."
+      );
+
+      return;
+    }
+
+    const tradeQuantity =
+      Math.max(
+        1,
+        Math.floor(
+          Number(
+            quantity
+          ) ||
+          1
+        )
+      );
+
+    const now =
+      new Date().toISOString();
+
+    const trade = {
+      id:
+        typeof crypto !==
+          "undefined" &&
+        typeof crypto.randomUUID ===
+          "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${ticker}-paper`,
+
+      status:
+        "open",
+
+      ticker,
+      expiration,
+      optionType,
+
+      longStrike:
+        longContract.strike,
+
+      shortStrike:
+        shortContract.strike,
+
+      longOptionId:
+        longContract.id,
+
+      shortOptionId:
+        shortContract.id,
+
+      quantity:
+        tradeQuantity,
+
+      fillMethod:
+        economics.midpointDebit !==
+        null
+          ? "midpoint"
+          : "conservative_debit",
+
+      entryPrice,
+
+      entryCost:
+        entryPrice *
+        100 *
+        tradeQuantity,
+
+      openedAt:
+        now,
+
+      updatedAt:
+        now,
+
+      entrySpot:
+        toNumber(
+          spot
+        ),
+
+      currentSpot:
+        toNumber(
+          spot
+        ),
+
+      currentMidpoint:
+        entryPrice,
+
+      unrealizedPL:
+        0,
+
+      unrealizedReturnPct:
+        0,
+
+      maxFavorablePL:
+        0,
+
+      maxAdversePL:
+        0,
+
+      entryRsi:
+        toNumber(
+          marketContext?.rsi
+        ),
+
+      entryMacdHistogram:
+        toNumber(
+          marketContext
+            ?.macd
+            ?.histogram
+        ),
+
+      entryLongIv:
+        toNumber(
+          longContract.iv
+        ),
+
+      entryShortIv:
+        toNumber(
+          shortContract.iv
+        ),
+
+      entryDelta:
+        economics.netDelta,
+
+      entryGamma:
+        economics.netGamma,
+
+      entryTheta:
+        economics.netTheta,
+
+      entryVega:
+        economics.netVega,
+
+      maxLoss:
+        economics.maxLoss !==
+        null
+          ? economics.maxLoss *
+            tradeQuantity
+          : null,
+
+      maxProfit:
+        economics.maxProfit !==
+        null
+          ? economics.maxProfit *
+            tradeQuantity
+          : null,
+
+      breakeven:
+        economics.breakeven,
+
+      rewardRisk:
+        economics.rewardRisk,
+
+      entryPutOIWall:
+        fullChainAnalysis
+          ?.putOIWall
+          ?.strike ??
+        null,
+
+      entryCallOIWall:
+        fullChainAnalysis
+          ?.callOIWall
+          ?.strike ??
+        null,
+
+      entryGammaConcentration:
+        fullChainAnalysis
+          ?.gammaConcentration
+          ?.strike ??
+        null,
+
+      entryLongQuote: {
+        bid:
+          longContract.bid,
+
+        ask:
+          longContract.ask,
+
+        mark:
+          longContract.mark,
+      },
+
+      entryShortQuote: {
+        bid:
+          shortContract.bid,
+
+        ask:
+          shortContract.ask,
+
+        mark:
+          shortContract.mark,
+      },
+
+      realizedPL:
+        null,
+
+      closedAt:
+        null,
+
+      exitPrice:
+        null,
+
+      exitSpot:
+        null,
+    };
+
+    persistTrades([
+      trade,
+      ...paperTrades,
+    ]);
+
+    setError(
+      ""
+    );
+  }
+
+  function closePaperTrade(
+    trade
+  ) {
+    const currentEconomics =
+      economicsForTrade(
+        trade
+      );
+
+    const exitPrice =
+      currentEconomics
+        ?.midpointDebit ??
+      null;
+
+    const entryPrice =
+      toNumber(
+        trade.entryPrice
+      );
+
+    if (
+      exitPrice ===
+        null ||
+      entryPrice ===
+        null
+    ) {
+      setError(
+        "Load this trade's expiration and current option quotes before closing the paper trade."
+      );
+
+      return;
+    }
+
+    const tradeQuantity =
+      Math.max(
+        1,
+        Number(
+          trade.quantity ||
+          1
+        )
+      );
+
+    const realizedPL =
+      (
+        exitPrice -
+        entryPrice
+      ) *
+      100 *
+      tradeQuantity;
+
+    const now =
+      new Date().toISOString();
+
+    const nextTrades =
+      paperTrades.map(
+        (item) =>
+          item.id ===
+          trade.id
+            ? {
+                ...item,
+
+                status:
+                  "closed",
+
+                exitPrice,
+
+                exitSpot:
+                  toNumber(
+                    spot
+                  ),
+
+                realizedPL,
+
+                unrealizedPL:
+                  null,
+
+                unrealizedReturnPct:
+                  null,
+
+                closedAt:
+                  now,
+
+                updatedAt:
+                  now,
+
+                holdingMinutes:
+                  Math.max(
+                    0,
+                    Math.round(
+                      (
+                        Date.parse(
+                          now
+                        ) -
+                        Date.parse(
+                          item.openedAt
+                        )
+                      ) /
+                        60000
+                    )
+                  ),
+              }
+            : item
+      );
+
+    persistTrades(
+      nextTrades
+    );
+
+    setError(
+      ""
+    );
+  }
+
+  function deleteClosedPaperTrade(
+    id
+  ) {
+    const nextTrades =
+      paperTrades.filter(
+        (trade) =>
+          !(
+            trade.id ===
+              id &&
+            trade.status ===
+              "closed"
+          )
+      );
+
+    persistTrades(
+      nextTrades
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-cyan-500/25 bg-cyan-500/[0.025] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-cyan-400">
+            Paper trading
+          </div>
+
+          <div className="mt-1 text-lg font-bold">
+            Trade journal + simulated execution
+          </div>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            Paper trades use the current spread midpoint as the simulated fill. No Robinhood order is submitted.
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <div className="rounded border border-cyan-500/20 px-2 py-1 text-[9px] uppercase tracking-widest text-cyan-300">
+            {openTrades.length} open
+          </div>
+
+          <div className="rounded border border-zinc-700 px-2 py-1 text-[9px] uppercase tracking-widest text-zinc-400">
+            {closedTrades.length} closed
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricBox
+          label="Paper Unrealized P/L"
+          value={signedDollar(
+            unrealizedTotal,
+            0
+          )}
+          valueClass={
+            unrealizedTotal >
+            0
+              ? "text-emerald-300"
+              : unrealizedTotal <
+                  0
+                ? "text-red-300"
+                : "text-zinc-200"
+          }
+        />
+
+        <MetricBox
+          label="Paper Realized P/L"
+          value={signedDollar(
+            realizedTotal,
+            0
+          )}
+          valueClass={
+            realizedTotal >
+            0
+              ? "text-emerald-300"
+              : realizedTotal <
+                  0
+                ? "text-red-300"
+                : "text-zinc-200"
+          }
+        />
+
+        <MetricBox
+          label="Closed Trades"
+          value={
+            closedTrades.length
+          }
+        />
+
+        <MetricBox
+          label="Win Rate"
+          value={
+            winRate !==
+            null
+              ? `${winRate.toFixed(
+                  1
+                )}%`
+              : "—"
+          }
+          subtext="Descriptive only; not a profitability forecast."
+        />
+      </div>
+
+      <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+              Current structure
+            </div>
+
+            <div className="mt-1 font-mono text-sm font-bold">
+              {longContract &&
+              shortContract
+                ? `${money(
+                    longContract.strike
+                  )} / ${money(
+                    shortContract.strike
+                  )} ${optionType.toUpperCase()} spread`
+                : "Select both legs"}
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Paper fill{" "}
+              <span className="font-mono text-cyan-300">
+                {money(
+                  economics?.midpointDebit ??
+                  economics?.entryDebit
+                )}
+              </span>
+              {" · "}
+              Spot{" "}
+              <span className="font-mono text-zinc-300">
+                {money(
+                  spot
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <label>
+              <div className="mb-1 text-[9px] uppercase tracking-widest text-zinc-600">
+                Qty
+              </div>
+
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={
+                  quantity
+                }
+                onChange={(
+                  event
+                ) =>
+                  setQuantity(
+                    event.target.value
+                  )
+                }
+                className="w-20 rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-center font-mono text-xs outline-none"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={
+                openPaperTrade
+              }
+              disabled={
+                loading ||
+                !economics ||
+                !longContract ||
+                !shortContract ||
+                !!exactOpenTrade
+              }
+              className="rounded border border-cyan-400/50 bg-cyan-400/10 px-4 py-2 text-[10px] font-bold text-cyan-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {exactOpenTrade
+                ? "PAPER TRADE OPEN"
+                : "OPEN PAPER TRADE"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 text-[10px] text-zinc-500">
+          Loading paper journal...
+        </div>
+      ) : openTrades.length >
+        0 ? (
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-cyan-400">
+            Open paper positions
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            {openTrades.map(
+              (trade) => {
+                const liveEconomics =
+                  economicsForTrade(
+                    trade
+                  );
+
+                const currentMidpoint =
+                  liveEconomics
+                    ?.midpointDebit ??
+                  toNumber(
+                    trade.currentMidpoint
+                  );
+
+                const currentPL =
+                  toNumber(
+                    trade.unrealizedPL
+                  );
+
+                const sameExpiration =
+                  trade.expiration ===
+                  expiration;
+
+                return (
+                  <div
+                    key={
+                      trade.id
+                    }
+                    className="rounded-xl border border-cyan-500/20 bg-black/25 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[9px] uppercase tracking-widest text-cyan-400">
+                          OPEN · {dateLabel(
+                            trade.expiration
+                          )}
+                        </div>
+
+                        <div className="mt-1 font-mono text-base font-bold">
+                          {money(
+                            trade.longStrike
+                          )}
+                          {" / "}
+                          {money(
+                            trade.shortStrike
+                          )}{" "}
+                          {String(
+                            trade.optionType
+                          ).toUpperCase()}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-600">
+                          {trade.quantity} contract{Number(
+                            trade.quantity
+                          ) === 1
+                            ? ""
+                            : "s"} · opened{" "}
+                          {new Date(
+                            trade.openedAt
+                          ).toLocaleString()}
+                        </div>
+                      </div>
+
+                      {sameExpiration ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            closePaperTrade(
+                              trade
+                            )
+                          }
+                          disabled={
+                            currentMidpoint ===
+                            null
+                          }
+                          className="rounded border border-amber-500/40 bg-amber-500/[0.06] px-3 py-1.5 text-[9px] uppercase tracking-widest text-amber-300 disabled:opacity-30"
+                        >
+                          Close at midpoint
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSelectExpiration?.(
+                              trade.expiration
+                            )
+                          }
+                          className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400"
+                        >
+                          Load expiration
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <MetricBox
+                        label="Entry"
+                        value={money(
+                          trade.entryPrice
+                        )}
+                        subtext={`${money(
+                          trade.entrySpot
+                        )} spot`}
+                      />
+
+                      <MetricBox
+                        label="Current Midpoint"
+                        value={money(
+                          currentMidpoint
+                        )}
+                      />
+
+                      <MetricBox
+                        label="Unrealized P/L"
+                        value={signedDollar(
+                          currentPL,
+                          0
+                        )}
+                        valueClass={
+                          currentPL >
+                          0
+                            ? "text-emerald-300"
+                            : currentPL <
+                                0
+                              ? "text-red-300"
+                              : "text-zinc-200"
+                        }
+                        subtext={
+                          toNumber(
+                            trade.unrealizedReturnPct
+                          ) !==
+                          null
+                            ? `${signed(
+                                trade.unrealizedReturnPct,
+                                1
+                              )}% on paper cost`
+                            : "—"
+                        }
+                      />
+
+                      <MetricBox
+                        label="MFE / MAE"
+                        value={`${signedDollar(
+                          trade.maxFavorablePL,
+                          0
+                        )} / ${signedDollar(
+                          trade.maxAdversePL,
+                          0
+                        )}`}
+                        subtext="Max favorable / adverse excursion"
+                      />
+
+                      <MetricBox
+                        label="Entry RSI"
+                        value={
+                          toNumber(
+                            trade.entryRsi
+                          ) !==
+                          null
+                            ? Number(
+                                trade.entryRsi
+                              ).toFixed(
+                                1
+                              )
+                            : "—"
+                        }
+                      />
+
+                      <MetricBox
+                        label="Entry MACD Hist"
+                        value={signed(
+                          trade.entryMacdHistogram
+                        )}
+                      />
+
+                      <MetricBox
+                        label="Entry OI Walls"
+                        value={`${money(
+                          trade.entryPutOIWall
+                        )} / ${money(
+                          trade.entryCallOIWall
+                        )}`}
+                        subtext="Put / Call"
+                      />
+
+                      <MetricBox
+                        label="Entry Gamma Level"
+                        value={money(
+                          trade.entryGammaConcentration
+                        )}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+          No open paper trades for {ticker}.
+        </div>
+      )}
+
+      {closedTrades.length >
+        0 && (
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Closed paper journal
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-zinc-800">
+            <table className="min-w-[1100px] w-full text-[10px] font-mono">
+              <thead>
+                <tr className="border-b border-zinc-800 text-zinc-500">
+                  <th className="px-3 py-2 text-left">
+                    Structure
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Qty
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Entry
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Exit
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Realized P/L
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    MFE
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    MAE
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Hold
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {closedTrades.map(
+                  (trade) => (
+                    <tr
+                      key={
+                        trade.id
+                      }
+                      className="border-b border-zinc-900"
+                    >
+                      <td className="px-3 py-2">
+                        {money(
+                          trade.longStrike
+                        )}{" "}
+                        /{" "}
+                        {money(
+                          trade.shortStrike
+                        )}{" "}
+                        {String(
+                          trade.optionType
+                        ).toUpperCase()}
+                      </td>
+
+                      <td className="px-3 py-2 text-right">
+                        {trade.quantity}
+                      </td>
+
+                      <td className="px-3 py-2 text-right">
+                        {money(
+                          trade.entryPrice
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-right">
+                        {money(
+                          trade.exitPrice
+                        )}
+                      </td>
+
+                      <td
+                        className={`px-3 py-2 text-right ${
+                          toNumber(
+                            trade.realizedPL
+                          ) >
+                          0
+                            ? "text-emerald-300"
+                            : toNumber(
+                                  trade.realizedPL
+                                ) <
+                                0
+                              ? "text-red-300"
+                              : "text-zinc-300"
+                        }`}
+                      >
+                        {signedDollar(
+                          trade.realizedPL,
+                          0
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-right text-emerald-300">
+                        {signedDollar(
+                          trade.maxFavorablePL,
+                          0
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-right text-red-300">
+                        {signedDollar(
+                          trade.maxAdversePL,
+                          0
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-right">
+                        {toNumber(
+                          trade.holdingMinutes
+                        ) !==
+                        null
+                          ? `${trade.holdingMinutes}m`
+                          : "—"}
+                      </td>
+
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteClosedPaperTrade(
+                              trade.id
+                            )
+                          }
+                          className="text-zinc-600 hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+        Paper fills are simulated from displayed midpoint quotes and do not model queue position, partial fills, assignment, commissions, or slippage yet. This journal is for testing the strategy process before enabling real-money execution.
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    NEW — MANUAL STRATEGY BUILDER
 ========================================================= */
 
@@ -8560,6 +10015,42 @@ function ManualStrategyBuilder({
             }
             onLoadPlan={
               loadSavedPlan
+            }
+          />
+
+          <PaperTradeJournal
+            ticker={
+              ticker
+            }
+            expiration={
+              expiration
+            }
+            optionType={
+              optionType
+            }
+            longContract={
+              longContract
+            }
+            shortContract={
+              shortContract
+            }
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
+            marketContext={
+              marketContext
+            }
+            fullChainAnalysis={
+              fullChainAnalysis
+            }
+            contracts={
+              contracts
+            }
+            onSelectExpiration={
+              onSelectExpiration
             }
           />
 
