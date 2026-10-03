@@ -5614,6 +5614,166 @@ function SavedStrategyPlansPanel({
                       ?.histogram
                   );
 
+                const savedSpot =
+                  toNumber(
+                    plan.savedSpot
+                  );
+
+                const spotChangePct =
+                  savedSpot !==
+                    null &&
+                  savedSpot !==
+                    0 &&
+                  toNumber(
+                    spot
+                  ) !==
+                    null
+                    ? (
+                        (
+                          Number(
+                            spot
+                          ) -
+                          savedSpot
+                        ) /
+                        savedSpot
+                      ) *
+                      100
+                    : null;
+
+                const savedMidpoint =
+                  toNumber(
+                    plan.savedMidpointDebit
+                  );
+
+                const midpointChange =
+                  currentMidpoint !==
+                    null &&
+                  savedMidpoint !==
+                    null
+                    ? currentMidpoint -
+                      savedMidpoint
+                    : null;
+
+                const midpointChangePct =
+                  midpointChange !==
+                    null &&
+                  savedMidpoint !==
+                    null &&
+                  savedMidpoint !==
+                    0
+                    ? (
+                        midpointChange /
+                        savedMidpoint
+                      ) *
+                      100
+                    : null;
+
+                const rsiChange =
+                  currentRsi !==
+                    null &&
+                  toNumber(
+                    plan.savedRsi
+                  ) !==
+                    null
+                    ? currentRsi -
+                      Number(
+                        plan.savedRsi
+                      )
+                    : null;
+
+                const macdChange =
+                  currentMacd !==
+                    null &&
+                  toNumber(
+                    plan.savedMacdHistogram
+                  ) !==
+                    null
+                    ? currentMacd -
+                      Number(
+                        plan.savedMacdHistogram
+                      )
+                    : null;
+
+                const currentPutWall =
+                  sameExpiration
+                    ? fullChainAnalysis
+                        ?.putOIWall
+                        ?.strike ??
+                      null
+                    : null;
+
+                const currentCallWall =
+                  sameExpiration
+                    ? fullChainAnalysis
+                        ?.callOIWall
+                        ?.strike ??
+                      null
+                    : null;
+
+                const currentGammaLevel =
+                  sameExpiration
+                    ? fullChainAnalysis
+                        ?.gammaConcentration
+                        ?.strike ??
+                      null
+                    : null;
+
+                const breakeven =
+                  toNumber(
+                    plan.breakeven
+                  );
+
+                const spotVsBreakeven =
+                  breakeven !==
+                    null &&
+                  breakeven !==
+                    0 &&
+                  toNumber(
+                    spot
+                  ) !==
+                    null
+                    ? (
+                        (
+                          Number(
+                            spot
+                          ) -
+                          breakeven
+                        ) /
+                        breakeven
+                      ) *
+                      100
+                    : null;
+
+                const invalidation =
+                  toNumber(
+                    plan.invalidationPrice
+                  );
+
+                const invalidationFromSpot =
+                  invalidation !==
+                    null &&
+                  toNumber(
+                    spot
+                  ) !==
+                    null &&
+                  Number(
+                    spot
+                  ) !==
+                    0
+                    ? (
+                        (
+                          invalidation -
+                          Number(
+                            spot
+                          )
+                        ) /
+                        Number(
+                          spot
+                        )
+                      ) *
+                      100
+                    : null;
+
                 return (
                   <div
                     key={
@@ -5784,6 +5944,254 @@ function SavedStrategyPlansPanel({
                       />
                     </div>
 
+                    <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/[0.025] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[9px] uppercase tracking-widest text-sky-400">
+                            Saved plan tracking
+                          </div>
+
+                          <div className="mt-1 text-[10px] text-zinc-500">
+                            Original snapshot compared with the current market data loaded in this ticker.
+                          </div>
+                        </div>
+
+                        <div
+                          className={`rounded border px-2 py-1 text-[9px] uppercase tracking-widest ${
+                            sameExpiration &&
+                            currentEconomics
+                              ? "border-sky-400/30 bg-sky-400/[0.05] text-sky-300"
+                              : "border-zinc-700 text-zinc-500"
+                          }`}
+                        >
+                          {sameExpiration &&
+                          currentEconomics
+                            ? "Live contract tracking"
+                            : "Load expiration for contract tracking"}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <MetricBox
+                          label="Stock Since Saved"
+                          value={
+                            spotChangePct !==
+                            null
+                              ? `${
+                                  spotChangePct >=
+                                  0
+                                    ? "+"
+                                    : ""
+                                }${spotChangePct.toFixed(
+                                  2
+                                )}%`
+                              : "—"
+                          }
+                          valueClass="text-sky-300"
+                          subtext={`${money(
+                            plan.savedSpot
+                          )} → ${money(
+                            spot
+                          )}`}
+                        />
+
+                        <MetricBox
+                          label="Spread Midpoint Change"
+                          value={
+                            midpointChange !==
+                            null
+                              ? signedDollar(
+                                  midpointChange,
+                                  2
+                                )
+                              : "—"
+                          }
+                          valueClass="text-violet-300"
+                          subtext={
+                            midpointChange !==
+                            null
+                              ? `${midpointChangePct !==
+                                null
+                                  ? `${
+                                      midpointChangePct >=
+                                      0
+                                        ? "+"
+                                        : ""
+                                    }${midpointChangePct.toFixed(
+                                      1
+                                    )}% · `
+                                  : ""}~${signedDollar(
+                                  midpointChange *
+                                    100,
+                                  0
+                                )} per 1-lot vs saved midpoint`
+                              : sameExpiration
+                                ? "Current contract quotes unavailable"
+                                : "Load this expiration to refresh"
+                          }
+                        />
+
+                        <MetricBox
+                          label="RSI Change"
+                          value={
+                            rsiChange !==
+                            null
+                              ? `${
+                                  rsiChange >=
+                                  0
+                                    ? "+"
+                                    : ""
+                                }${rsiChange.toFixed(
+                                  1
+                                )} pts`
+                              : "—"
+                          }
+                          subtext={`${
+                            plan.savedRsi !==
+                              null &&
+                            plan.savedRsi !==
+                              undefined
+                              ? Number(
+                                  plan.savedRsi
+                                ).toFixed(
+                                  1
+                                )
+                              : "—"
+                          } → ${
+                            currentRsi !==
+                            null
+                              ? currentRsi.toFixed(
+                                  1
+                                )
+                              : "—"
+                          }`}
+                        />
+
+                        <MetricBox
+                          label="MACD Hist Change"
+                          value={
+                            macdChange !==
+                            null
+                              ? signed(
+                                  macdChange
+                                )
+                              : "—"
+                          }
+                          subtext={`${signed(
+                            plan.savedMacdHistogram
+                          )} → ${signed(
+                            currentMacd
+                          )}`}
+                        />
+
+                        <MetricBox
+                          label="Current OI Walls"
+                          value={
+                            sameExpiration
+                              ? `${money(
+                                  currentPutWall
+                                )} / ${money(
+                                  currentCallWall
+                                )}`
+                              : "—"
+                          }
+                          subtext={
+                            sameExpiration
+                              ? `Saved ${money(
+                                  plan.putOIWall
+                                )} / ${money(
+                                  plan.callOIWall
+                                )} · Put / Call`
+                              : "Load this expiration to refresh"
+                          }
+                        />
+
+                        <MetricBox
+                          label="Current Gamma Level"
+                          value={
+                            sameExpiration
+                              ? money(
+                                  currentGammaLevel
+                                )
+                              : "—"
+                          }
+                          subtext={
+                            sameExpiration
+                              ? `Saved ${money(
+                                  plan.gammaConcentration
+                                )}`
+                              : "Load this expiration to refresh"
+                          }
+                        />
+
+                        <MetricBox
+                          label="Spot vs Breakeven"
+                          value={
+                            spotVsBreakeven !==
+                            null
+                              ? `${
+                                  spotVsBreakeven >=
+                                  0
+                                    ? "+"
+                                    : ""
+                                }${spotVsBreakeven.toFixed(
+                                  2
+                                )}%`
+                              : "—"
+                          }
+                          subtext={
+                            breakeven !==
+                            null
+                              ? `${money(
+                                  spot
+                                )} is ${
+                                  Number(
+                                    spot
+                                  ) >=
+                                  breakeven
+                                    ? "above"
+                                    : "below"
+                                } ${money(
+                                  breakeven
+                                )}`
+                              : "No breakeven saved"
+                          }
+                        />
+
+                        <MetricBox
+                          label="Invalidation Reference"
+                          value={money(
+                            invalidation
+                          )}
+                          valueClass={
+                            invalidation !==
+                            null
+                              ? "text-amber-300"
+                              : "text-zinc-400"
+                          }
+                          subtext={
+                            invalidationFromSpot !==
+                            null
+                              ? `${Math.abs(
+                                  invalidationFromSpot
+                                ).toFixed(
+                                  2
+                                )}% ${
+                                  invalidationFromSpot >=
+                                  0
+                                    ? "above"
+                                    : "below"
+                                } current spot`
+                              : "No invalidation reference saved"
+                          }
+                        />
+                      </div>
+
+                      <div className="mt-3 text-[9px] leading-relaxed text-zinc-600">
+                        Midpoint change compares the current spread midpoint with the saved midpoint snapshot. It is not realized or account P/L.
+                      </div>
+                    </div>
+
                     {(plan.notes ||
                       plan.invalidationPrice !==
                         null) && (
@@ -5829,7 +6237,7 @@ function SavedStrategyPlansPanel({
       )}
 
       <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
-        Saved plans are snapshots. Market prices, Greeks, volume, open interest, RSI, and MACD can change after a plan is saved.
+        Saved plans preserve the original snapshot. Tracking compares that snapshot with currently loaded market data; current option midpoint, OI walls, and gamma concentration refresh only when the saved plan's expiration is loaded.
       </div>
     </div>
   );
