@@ -2461,6 +2461,766 @@ function SavedPlansSummary({
 
 /*
   =========================================================
+  TRADE ANALYTICS
+  =========================================================
+*/
+
+function TradeAnalyticsPanel({
+  analytics,
+  loading,
+  error,
+  onRefresh,
+  onDownload,
+}) {
+  const summary =
+    analytics?.summary ??
+    {};
+
+  const breakdowns =
+    analytics?.breakdowns ??
+    {};
+
+  const dataset =
+    Array.isArray(
+      analytics?.dataset
+    )
+      ? analytics.dataset
+      : [];
+
+  const dollar0 =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : `${n >= 0 ? "+" : "-"}${Math.abs(
+            n
+          ).toFixed(
+            0
+          )}`;
+    };
+
+  const percent1 =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : `${n.toFixed(
+            1
+          )}%`;
+    };
+
+  const number2 =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          );
+    };
+
+  const breakdownCards = [
+    {
+      key:
+        "ticker",
+
+      label:
+        "By ticker",
+    },
+
+    {
+      key:
+        "option_type",
+
+      label:
+        "Call vs put",
+    },
+
+    {
+      key:
+        "entry_rsi",
+
+      label:
+        "Entry RSI",
+    },
+
+    {
+      key:
+        "entry_macd",
+
+      label:
+        "Entry MACD",
+    },
+
+    {
+      key:
+        "entry_iv",
+
+      label:
+        "Entry IV",
+    },
+
+    {
+      key:
+        "reward_risk",
+
+      label:
+        "Reward / risk",
+    },
+
+    {
+      key:
+        "exit_reason",
+
+      label:
+        "Exit reason",
+    },
+
+    {
+      key:
+        "holding_time",
+
+      label:
+        "Holding time",
+    },
+  ];
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-cyan-500/20 bg-cyan-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-cyan-400">
+              Trade analytics
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Paper performance + model-ready dataset
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Closed paper trades only. Results are descriptive and do not establish future profitability.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={
+                onRefresh
+              }
+              disabled={
+                loading
+              }
+              className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-cyan-400/40 hover:text-cyan-300 disabled:opacity-40"
+            >
+              {loading
+                ? "Refreshing..."
+                : "Refresh analytics"}
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                onDownload
+              }
+              className="rounded border border-cyan-400/40 bg-cyan-400/[0.05] px-3 py-1.5 text-[9px] uppercase tracking-widest text-cyan-300"
+            >
+              Download dataset CSV
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Analytics error: {error}
+          </div>
+        )}
+
+        {!error && (
+          <>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+              {[
+                {
+                  label:
+                    "Closed trades",
+
+                  value:
+                    summary.closed_trades ??
+                    0,
+
+                  className:
+                    "text-white",
+                },
+
+                {
+                  label:
+                    "Win rate",
+
+                  value:
+                    percent1(
+                      summary.win_rate
+                    ),
+
+                  className:
+                    "text-sky-300",
+                },
+
+                {
+                  label:
+                    "Realized P/L",
+
+                  value:
+                    dollar0(
+                      summary.cumulative_pl
+                    ),
+
+                  className:
+                    toNumber(
+                      summary.cumulative_pl
+                    ) >
+                    0
+                      ? "text-emerald-300"
+                      : toNumber(
+                          summary.cumulative_pl
+                        ) <
+                        0
+                        ? "text-red-300"
+                        : "text-zinc-200",
+                },
+
+                {
+                  label:
+                    "Expectancy / trade",
+
+                  value:
+                    dollar0(
+                      summary.expectancy_per_trade
+                    ),
+
+                  className:
+                    "text-violet-300",
+                },
+
+                {
+                  label:
+                    "Profit factor",
+
+                  value:
+                    number2(
+                      summary.profit_factor
+                    ),
+
+                  className:
+                    "text-amber-300",
+                },
+
+                {
+                  label:
+                    "Max drawdown",
+
+                  value:
+                    dollar0(
+                      summary.max_drawdown
+                    ),
+
+                  className:
+                    "text-red-300",
+                },
+
+                {
+                  label:
+                    "Average winner",
+
+                  value:
+                    dollar0(
+                      summary.average_winner
+                    ),
+
+                  className:
+                    "text-emerald-300",
+                },
+
+                {
+                  label:
+                    "Average loser",
+
+                  value:
+                    dollar0(
+                      summary.average_loser
+                    ),
+
+                  className:
+                    "text-red-300",
+                },
+
+                {
+                  label:
+                    "Average MFE",
+
+                  value:
+                    dollar0(
+                      summary.average_mfe
+                    ),
+
+                  className:
+                    "text-emerald-300",
+                },
+
+                {
+                  label:
+                    "Average MAE",
+
+                  value:
+                    dollar0(
+                      summary.average_mae
+                    ),
+
+                  className:
+                    "text-red-300",
+                },
+
+                {
+                  label:
+                    "Avg slippage",
+
+                  value:
+                    dollar0(
+                      summary.average_slippage
+                    ),
+
+                  className:
+                    "text-amber-300",
+                },
+
+                {
+                  label:
+                    "Avg hold",
+
+                  value:
+                    toNumber(
+                      summary.average_holding_minutes
+                    ) !==
+                    null
+                      ? `${Math.round(
+                          summary.average_holding_minutes
+                        )}m`
+                      : "—",
+
+                  className:
+                    "text-zinc-200",
+                },
+              ].map(
+                (item) => (
+                  <div
+                    key={
+                      item.label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {item.label}
+                    </div>
+
+                    <div className={`mt-1 font-mono text-sm font-bold ${item.className}`}>
+                      {item.value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-violet-500/20 bg-violet-500/[0.025] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest text-violet-400">
+                    Learning dataset
+                  </div>
+
+                  <div className="mt-1 text-sm font-bold text-white">
+                    {dataset.length} closed trade row{dataset.length === 1 ? "" : "s"} available
+                  </div>
+                </div>
+
+                <div className="rounded border border-violet-500/20 px-2 py-1 text-[9px] uppercase tracking-widest text-violet-300">
+                  Dataset v{analytics?.dataset_version ?? 1}
+                </div>
+              </div>
+
+              <div className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                Each row contains entry market features, Greeks, IV, OI/gamma structure, execution quality, slippage, fees, MFE, MAE, holding time, exit reason, return, and realized P/L. A very small sample is useful for validating data collection, not for claiming a predictive model is profitable.
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {breakdownCards.map(
+                (card) => {
+                  const rows =
+                    Array.isArray(
+                      breakdowns[
+                        card.key
+                      ]
+                    )
+                      ? breakdowns[
+                          card.key
+                        ]
+                      : [];
+
+                  return (
+                    <div
+                      key={
+                        card.key
+                      }
+                      className="rounded-xl border border-zinc-800 bg-black/25 p-3"
+                    >
+                      <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                        {card.label}
+                      </div>
+
+                      {rows.length >
+                      0 ? (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className="w-full text-[9px] font-mono">
+                            <thead>
+                              <tr className="border-b border-zinc-800 text-zinc-600">
+                                <th className="py-1.5 text-left">
+                                  Group
+                                </th>
+
+                                <th className="py-1.5 text-right">
+                                  N
+                                </th>
+
+                                <th className="py-1.5 text-right">
+                                  Win%
+                                </th>
+
+                                <th className="py-1.5 text-right">
+                                  P/L
+                                </th>
+
+                                <th className="py-1.5 text-right">
+                                  Avg
+                                </th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {rows.map(
+                                (row) => (
+                                  <tr
+                                    key={
+                                      row.key
+                                    }
+                                    className="border-b border-zinc-900"
+                                  >
+                                    <td className="py-1.5 text-left text-zinc-300">
+                                      {String(
+                                        row.key
+                                      ).replaceAll(
+                                        "_",
+                                        " "
+                                      )}
+                                    </td>
+
+                                    <td className="py-1.5 text-right">
+                                      {row.trades}
+                                    </td>
+
+                                    <td className="py-1.5 text-right">
+                                      {percent1(
+                                        row.win_rate
+                                      )}
+                                    </td>
+
+                                    <td
+                                      className={`py-1.5 text-right ${
+                                        toNumber(
+                                          row.total_pl
+                                        ) >
+                                        0
+                                          ? "text-emerald-300"
+                                          : toNumber(
+                                              row.total_pl
+                                            ) <
+                                            0
+                                            ? "text-red-300"
+                                            : ""
+                                      }`}
+                                    >
+                                      {dollar0(
+                                        row.total_pl
+                                      )}
+                                    </td>
+
+                                    <td className="py-1.5 text-right">
+                                      {dollar0(
+                                        row.average_pl
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-[9px] text-zinc-600">
+                          No closed trades yet.
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+              )}
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Model-ready rows
+              </div>
+
+              {dataset.length >
+              0 ? (
+                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                  <table className="min-w-[1250px] w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="px-3 py-2 text-left">
+                          Ticker
+                        </th>
+
+                        <th className="px-3 py-2 text-left">
+                          Structure
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          RSI
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MACD Hist
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Mean IV
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Delta
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Theta
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          R/R
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Slip
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MFE
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MAE
+                        </th>
+
+                        <th className="px-3 py-2 text-left">
+                          Exit
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Return
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          P/L
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {dataset
+                        .slice(
+                          -20
+                        )
+                        .reverse()
+                        .map(
+                          (row) => (
+                            <tr
+                              key={
+                                row.id
+                              }
+                              className="border-b border-zinc-900"
+                            >
+                              <td className="px-3 py-2 text-left text-white">
+                                {row.ticker}
+                              </td>
+
+                              <td className="px-3 py-2 text-left">
+                                {formatMoney(
+                                  row.long_strike
+                                )}{" "}
+                                /{" "}
+                                {formatMoney(
+                                  row.short_strike
+                                )}{" "}
+                                {String(
+                                  row.option_type ??
+                                  ""
+                                ).toUpperCase()}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {toNumber(
+                                  row.entry_rsi
+                                ) !==
+                                null
+                                  ? Number(
+                                      row.entry_rsi
+                                    ).toFixed(
+                                      1
+                                    )
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatSignedNumber(
+                                  row.entry_macd_histogram,
+                                  3
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {toNumber(
+                                  row.entry_mean_iv
+                                ) !==
+                                null
+                                  ? `${(
+                                      Number(
+                                        row.entry_mean_iv
+                                      ) *
+                                      100
+                                    ).toFixed(
+                                      1
+                                    )}%`
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatSignedNumber(
+                                  row.entry_delta,
+                                  3
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatSignedNumber(
+                                  row.entry_theta,
+                                  3
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {number2(
+                                  row.reward_risk
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right text-amber-300">
+                                {dollar0(
+                                  row.total_slippage_dollars
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right text-emerald-300">
+                                {dollar0(
+                                  row.mfe
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right text-red-300">
+                                {dollar0(
+                                  row.mae
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-left">
+                                {String(
+                                  row.exit_reason ??
+                                  "unknown"
+                                ).replaceAll(
+                                  "_",
+                                  " "
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {percent1(
+                                  row.realized_return_pct
+                                )}
+                              </td>
+
+                              <td
+                                className={`px-3 py-2 text-right font-bold ${
+                                  toNumber(
+                                    row.realized_pl
+                                  ) >
+                                  0
+                                    ? "text-emerald-300"
+                                    : toNumber(
+                                        row.realized_pl
+                                      ) <
+                                      0
+                                      ? "text-red-300"
+                                      : ""
+                                }`}
+                              >
+                                {dollar0(
+                                  row.realized_pl
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+                  Close paper trades to populate the learning dataset.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/*
+  =========================================================
   TICKER TAG
   =========================================================
 */
@@ -2812,6 +3572,30 @@ export default function OptionsScanner() {
   const [
     systemHealthError,
     setSystemHealthError,
+  ] =
+    useState("");
+
+  const [
+    tradeAnalyticsOpen,
+    setTradeAnalyticsOpen,
+  ] =
+    useState(false);
+
+  const [
+    tradeAnalytics,
+    setTradeAnalytics,
+  ] =
+    useState(null);
+
+  const [
+    tradeAnalyticsLoading,
+    setTradeAnalyticsLoading,
+  ] =
+    useState(false);
+
+  const [
+    tradeAnalyticsError,
+    setTradeAnalyticsError,
   ] =
     useState("");
 
@@ -3466,6 +4250,58 @@ export default function OptionsScanner() {
     refreshSystemHealth,
   ]);
 
+  const refreshTradeAnalytics =
+    useCallback(
+      async () => {
+        setTradeAnalyticsLoading(
+          true
+        );
+
+        setTradeAnalyticsError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              `${PROXY_BASE}/scanner/paper-analytics`
+            );
+
+          setTradeAnalytics(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setTradeAnalyticsError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setTradeAnalyticsLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  useEffect(() => {
+    if (
+      !tradeAnalyticsOpen
+    ) {
+      return;
+    }
+
+    refreshTradeAnalytics();
+  }, [
+    tradeAnalyticsOpen,
+    refreshTradeAnalytics,
+  ]);
+
   /*
     =======================================================
     STATUS
@@ -4089,6 +4925,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setTradeAnalyticsOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-mono ${
+                tradeAnalyticsOpen
+                  ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              Trade Analytics
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -4522,6 +5375,32 @@ Do not invent missing values.`
             )}
           </div>
         </section>
+      )}
+
+      {/* TRADE ANALYTICS */}
+
+      {tradeAnalyticsOpen && (
+        <TradeAnalyticsPanel
+          analytics={
+            tradeAnalytics
+          }
+          loading={
+            tradeAnalyticsLoading
+          }
+          error={
+            tradeAnalyticsError
+          }
+          onRefresh={
+            refreshTradeAnalytics
+          }
+          onDownload={() =>
+            window.open(
+              `${PROXY_BASE}/scanner/paper-dataset.csv`,
+              "_blank",
+              "noopener,noreferrer"
+            )
+          }
+        />
       )}
 
       {/* TICKERS */}
