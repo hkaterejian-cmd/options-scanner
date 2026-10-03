@@ -6714,6 +6714,40 @@ function PaperTradeJournal({
   contracts,
   onSelectExpiration,
 }) {
+  const DEFAULT_PAPER_SETTINGS = {
+    fillModel:
+      "quarter_spread",
+
+    feePerContractPerLeg:
+      0,
+
+    riskLimits: {
+      maxLossPerTrade:
+        500,
+
+      maxTotalOpenRisk:
+        1500,
+
+      maxTickerOpenRisk:
+        750,
+
+      maxOpenPositions:
+        3,
+
+      minOpenInterest:
+        100,
+
+      minVolume:
+        20,
+
+      maxBidAskPct:
+        15,
+
+      minRewardRisk:
+        1,
+    },
+  };
+
   const [
     paperTrades,
     setPaperTrades,
@@ -6723,6 +6757,30 @@ function PaperTradeJournal({
     quantity,
     setQuantity,
   ] = useState(1);
+
+  const [
+    paperSettings,
+    setPaperSettings,
+  ] = useState(
+    DEFAULT_PAPER_SETTINGS
+  );
+
+  const [
+    settingsDraft,
+    setSettingsDraft,
+  ] = useState(
+    DEFAULT_PAPER_SETTINGS
+  );
+
+  const [
+    settingsStatus,
+    setSettingsStatus,
+  ] = useState("");
+
+  const [
+    exitReasons,
+    setExitReasons,
+  ] = useState({});
 
   const [
     loading,
@@ -6755,24 +6813,62 @@ function PaperTradeJournal({
       try {
         const state =
           await fetchJson(
-            `${PROXY_BASE}/scanner/state`
+            \`\${PROXY_BASE}/scanner/state\`
           );
 
         if (
-          !cancelled
+          cancelled
         ) {
-          setPaperTrades(
-            Array.isArray(
-              state?.paperTrades
-            )
-              ? state.paperTrades
-              : []
-          );
-
-          setHydrated(
-            true
-          );
+          return;
         }
+
+        setPaperTrades(
+          Array.isArray(
+            state?.paperTrades
+          )
+            ? state.paperTrades
+            : []
+        );
+
+        const loadedSettings = {
+          ...DEFAULT_PAPER_SETTINGS,
+
+          ...(
+            state?.paperSettings &&
+            typeof state.paperSettings ===
+              "object"
+              ? state.paperSettings
+              : {}
+          ),
+
+          riskLimits: {
+            ...DEFAULT_PAPER_SETTINGS
+              .riskLimits,
+
+            ...(
+              state?.paperSettings
+                ?.riskLimits &&
+              typeof state.paperSettings
+                .riskLimits ===
+                "object"
+                ? state.paperSettings
+                    .riskLimits
+                : {}
+            ),
+          },
+        };
+
+        setPaperSettings(
+          loadedSettings
+        );
+
+        setSettingsDraft(
+          loadedSettings
+        );
+
+        setHydrated(
+          true
+        );
 
       } catch (err) {
         if (
@@ -6829,41 +6925,224 @@ function PaperTradeJournal({
     );
   }
 
-  function economicsForTrade(
+  function updateDraftRisk(
+    key,
+    value
+  ) {
+    setSettingsDraft(
+      (current) => ({
+        ...current,
+
+        riskLimits: {
+          ...current.riskLimits,
+
+          [key]:
+            value,
+        },
+      })
+    );
+  }
+
+  async function savePaperSettings() {
+    const normalized = {
+      fillModel:
+        settingsDraft.fillModel,
+
+      feePerContractPerLeg:
+        Math.max(
+          0,
+          toNumber(
+            settingsDraft
+              .feePerContractPerLeg
+          ) ??
+          0
+        ),
+
+      riskLimits: {
+        maxLossPerTrade:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .maxLossPerTrade
+            ) ??
+            0
+          ),
+
+        maxTotalOpenRisk:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .maxTotalOpenRisk
+            ) ??
+            0
+          ),
+
+        maxTickerOpenRisk:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .maxTickerOpenRisk
+            ) ??
+            0
+          ),
+
+        maxOpenPositions:
+          Math.max(
+            1,
+            Math.floor(
+              toNumber(
+                settingsDraft
+                  .riskLimits
+                  .maxOpenPositions
+              ) ??
+              1
+            )
+          ),
+
+        minOpenInterest:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .minOpenInterest
+            ) ??
+            0
+          ),
+
+        minVolume:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .minVolume
+            ) ??
+            0
+          ),
+
+        maxBidAskPct:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .maxBidAskPct
+            ) ??
+            0
+          ),
+
+        minRewardRisk:
+          Math.max(
+            0,
+            toNumber(
+              settingsDraft
+                .riskLimits
+                .minRewardRisk
+            ) ??
+            0
+          ),
+      },
+    };
+
+    setSettingsStatus(
+      "Saving..."
+    );
+
+    try {
+      await persistScannerStateSection(
+        "paper-settings",
+        {
+          paperSettings:
+            normalized,
+        }
+      );
+
+      setPaperSettings(
+        normalized
+      );
+
+      setSettingsDraft(
+        normalized
+      );
+
+      setSettingsStatus(
+        "Saved"
+      );
+
+    } catch (err) {
+      setSettingsStatus(
+        "Save failed"
+      );
+
+      setError(
+        err.message
+      );
+    }
+  }
+
+  function contractsForTrade(
     trade
   ) {
     if (
       trade.expiration !==
       expiration
     ) {
-      return null;
+      return {
+        longContract:
+          null,
+
+        shortContract:
+          null,
+      };
     }
 
-    const currentLong =
-      contracts.find(
-        (contract) =>
-          contract.type ===
-            trade.optionType &&
-          contract.strike ===
-            Number(
-              trade.longStrike
-            )
-      );
+    return {
+      longContract:
+        contracts.find(
+          (contract) =>
+            contract.type ===
+              trade.optionType &&
+            contract.strike ===
+              Number(
+                trade.longStrike
+              )
+        ) ??
+        null,
 
-    const currentShort =
-      contracts.find(
-        (contract) =>
-          contract.type ===
-            trade.optionType &&
-          contract.strike ===
-            Number(
-              trade.shortStrike
-            )
+      shortContract:
+        contracts.find(
+          (contract) =>
+            contract.type ===
+              trade.optionType &&
+            contract.strike ===
+              Number(
+                trade.shortStrike
+              )
+        ) ??
+        null,
+    };
+  }
+
+  function economicsForTrade(
+    trade
+  ) {
+    const currentContracts =
+      contractsForTrade(
+        trade
       );
 
     if (
-      !currentLong ||
-      !currentShort
+      !currentContracts
+        .longContract ||
+      !currentContracts
+        .shortContract
     ) {
       return null;
     }
@@ -6881,247 +7160,144 @@ function PaperTradeJournal({
       legs: [
         {
           action:
-            `Long ${trade.optionType}`,
+            \`Long \${trade.optionType}\`,
 
           side:
             "long",
 
           contract:
-            currentLong,
+            currentContracts
+              .longContract,
         },
 
         {
           action:
-            `Short ${trade.optionType}`,
+            \`Short \${trade.optionType}\`,
 
           side:
             "short",
 
           contract:
-            currentShort,
+            currentContracts
+              .shortContract,
         },
       ],
     });
   }
 
-  useEffect(() => {
+  function calculateFill({
+    economics:
+      spreadEconomics,
+
+    long:
+      longLeg,
+
+    short:
+      shortLeg,
+
+    fillModel,
+
+    action,
+  }) {
     if (
-      !hydrated ||
-      !contracts.length
+      !spreadEconomics ||
+      !longLeg ||
+      !shortLeg
     ) {
-      return;
+      return null;
     }
 
-    setPaperTrades(
-      (current) => {
-        let changed =
-          false;
+    const midpoint =
+      spreadEconomics
+        .midpointDebit;
 
-        const now =
-          new Date().toISOString();
+    if (
+      midpoint ===
+      null
+    ) {
+      return null;
+    }
 
-        const next =
-          current.map(
-            (trade) => {
-              if (
-                trade.status !==
-                  "open" ||
-                trade.ticker !==
-                  ticker ||
-                trade.expiration !==
-                  expiration
-              ) {
-                return trade;
-              }
+    const conservativeEntry =
+      longLeg.ask !==
+        null &&
+      shortLeg.bid !==
+        null
+        ? longLeg.ask -
+          shortLeg.bid
+        : midpoint;
 
-              const currentEconomics =
-                economicsForTrade(
-                  trade
-                );
+    const conservativeExit =
+      longLeg.bid !==
+        null &&
+      shortLeg.ask !==
+        null
+        ? longLeg.bid -
+          shortLeg.ask
+        : midpoint;
 
-              const currentMidpoint =
-                currentEconomics
-                  ?.midpointDebit ??
-                null;
+    const worst =
+      action ===
+      "entry"
+        ? conservativeEntry
+        : conservativeExit;
 
-              const entryPrice =
-                toNumber(
-                  trade.entryPrice
-                );
+    let fill =
+      midpoint;
 
-              const tradeQuantity =
-                Math.max(
-                  1,
-                  Number(
-                    trade.quantity ||
-                    1
-                  )
-                );
+    if (
+      fillModel ===
+      "quarter_spread"
+    ) {
+      fill =
+        midpoint +
+        (
+          worst -
+          midpoint
+        ) *
+          0.25;
+    }
 
-              if (
-                currentMidpoint ===
-                  null ||
-                entryPrice ===
-                  null
-              ) {
-                return trade;
-              }
+    if (
+      fillModel ===
+      "conservative"
+    ) {
+      fill =
+        worst;
+    }
 
-              const unrealizedPL =
-                (
-                  currentMidpoint -
-                  entryPrice
-                ) *
-                100 *
-                tradeQuantity;
+    fill =
+      clamp(
+        fill,
+        0,
+        spreadEconomics
+          .width
+      );
 
-              const entryCost =
-                entryPrice *
-                100 *
-                tradeQuantity;
+    const slippage =
+      action ===
+      "entry"
+        ? fill -
+          midpoint
+        : midpoint -
+          fill;
 
-              const unrealizedReturnPct =
-                entryCost >
-                0
-                  ? (
-                      unrealizedPL /
-                      entryCost
-                    ) *
-                    100
-                  : null;
+    return {
+      midpoint,
 
-              const maxFavorablePL =
-                Math.max(
-                  toNumber(
-                    trade.maxFavorablePL
-                  ) ??
-                    0,
-                  unrealizedPL
-                );
+      fill,
 
-              const maxAdversePL =
-                Math.min(
-                  toNumber(
-                    trade.maxAdversePL
-                  ) ??
-                    0,
-                  unrealizedPL
-                );
+      slippage:
+        Math.max(
+          0,
+          slippage
+        ),
 
-              const shouldUpdate =
-                Math.abs(
-                  (
-                    toNumber(
-                      trade.currentMidpoint
-                    ) ??
-                    0
-                  ) -
-                  currentMidpoint
-                ) >
-                  0.0001 ||
-                Math.abs(
-                  (
-                    toNumber(
-                      trade.currentSpot
-                    ) ??
-                    0
-                  ) -
-                  (
-                    toNumber(
-                      spot
-                    ) ??
-                    0
-                  )
-                ) >
-                  0.0001 ||
-                Math.abs(
-                  (
-                    toNumber(
-                      trade.unrealizedPL
-                    ) ??
-                    0
-                  ) -
-                  unrealizedPL
-                ) >
-                  0.01;
+      conservativeEntry,
 
-              if (
-                !shouldUpdate
-              ) {
-                return trade;
-              }
-
-              changed =
-                true;
-
-              return {
-                ...trade,
-
-                currentMidpoint,
-
-                currentSpot:
-                  toNumber(
-                    spot
-                  ),
-
-                unrealizedPL,
-
-                unrealizedReturnPct,
-
-                maxFavorablePL,
-
-                maxAdversePL,
-
-                currentRsi:
-                  toNumber(
-                    marketContext?.rsi
-                  ),
-
-                currentMacdHistogram:
-                  toNumber(
-                    marketContext
-                      ?.macd
-                      ?.histogram
-                  ),
-
-                updatedAt:
-                  now,
-              };
-            }
-          );
-
-        if (
-          changed
-        ) {
-          persistScannerStateSection(
-            "paper-trades",
-            {
-              paperTrades:
-                next,
-            }
-          ).catch(
-            (err) =>
-              console.warn(
-                "Paper-trade mark update failed:",
-                err
-              )
-          );
-
-          return next;
-        }
-
-        return current;
-      }
-    );
-  }, [
-    hydrated,
-    contracts,
-    ticker,
-    expiration,
-    spot,
-    marketContext?.rsi,
-    marketContext?.macd?.histogram,
-  ]);
+      conservativeExit,
+    };
+  }
 
   const tickerTrades =
     useMemo(
@@ -7147,6 +7323,13 @@ function PaperTradeJournal({
         paperTrades,
         ticker,
       ]
+    );
+
+  const allOpenTrades =
+    paperTrades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
     );
 
   const openTrades =
@@ -7217,6 +7400,86 @@ function PaperTradeJournal({
         100
       : null;
 
+  const tradeQuantity =
+    Math.max(
+      1,
+      Math.floor(
+        Number(
+          quantity
+        ) ||
+        1
+      )
+    );
+
+  const currentEntryFill =
+    economics &&
+    longContract &&
+    shortContract
+      ? calculateFill({
+          economics,
+
+          long:
+            longContract,
+
+          short:
+            shortContract,
+
+          fillModel:
+            paperSettings
+              .fillModel,
+
+          action:
+            "entry",
+        })
+      : null;
+
+  const entryFee =
+    Math.max(
+      0,
+      toNumber(
+        paperSettings
+          .feePerContractPerLeg
+      ) ??
+      0
+    ) *
+    2 *
+    tradeQuantity;
+
+  const estimatedExitFee =
+    entryFee;
+
+  const paperMaxLoss =
+    currentEntryFill
+      ? currentEntryFill
+          .fill *
+          100 *
+          tradeQuantity +
+        entryFee
+      : null;
+
+  const paperMaxProfit =
+    currentEntryFill
+      ? (
+          economics.width -
+          currentEntryFill.fill
+        ) *
+          100 *
+          tradeQuantity -
+        entryFee -
+        estimatedExitFee
+      : null;
+
+  const paperRewardRisk =
+    paperMaxLoss !==
+      null &&
+    paperMaxLoss >
+      0 &&
+    paperMaxProfit !==
+      null
+      ? paperMaxProfit /
+        paperMaxLoss
+      : null;
+
   const exactOpenTrade =
     longContract &&
     shortContract
@@ -7242,45 +7505,625 @@ function PaperTradeJournal({
         null
       : null;
 
+  const totalOpenRisk =
+    allOpenTrades.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        (
+          toNumber(
+            trade.paperMaxLoss
+          ) ??
+          toNumber(
+            trade.maxLoss
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const tickerOpenRisk =
+    allOpenTrades
+      .filter(
+        (trade) =>
+          trade.ticker ===
+          ticker
+      )
+      .reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          (
+            toNumber(
+              trade.paperMaxLoss
+            ) ??
+            toNumber(
+              trade.maxLoss
+            ) ??
+            0
+          ),
+        0
+      );
+
+  const longSpreadPct =
+    legSpreadPercent(
+      longContract
+    );
+
+  const shortSpreadPct =
+    legSpreadPercent(
+      shortContract
+    );
+
+  const riskChecks =
+    [];
+
+  const limits =
+    paperSettings
+      .riskLimits;
+
+  function addCheck(
+    name,
+    passed,
+    detail
+  ) {
+    riskChecks.push({
+      name,
+      passed,
+      detail,
+    });
+  }
+
+  addCheck(
+    "Entry price",
+    !!currentEntryFill &&
+      currentEntryFill.fill >
+        0,
+    currentEntryFill
+      ? \`Simulated fill \${money(
+          currentEntryFill.fill
+        )}\`
+      : "No valid spread quote"
+  );
+
+  addCheck(
+    "Per-trade max loss",
+    paperMaxLoss !==
+      null &&
+      (
+        limits.maxLossPerTrade <=
+          0 ||
+        paperMaxLoss <=
+          limits.maxLossPerTrade
+      ),
+    paperMaxLoss !==
+      null
+      ? \`\${dollar(
+          paperMaxLoss
+        )} / \${dollar(
+          limits.maxLossPerTrade
+        )} limit\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Portfolio open risk",
+    paperMaxLoss !==
+      null &&
+      (
+        limits.maxTotalOpenRisk <=
+          0 ||
+        totalOpenRisk +
+          paperMaxLoss <=
+          limits.maxTotalOpenRisk
+      ),
+    paperMaxLoss !==
+      null
+      ? \`\${dollar(
+          totalOpenRisk +
+            paperMaxLoss
+        )} after trade / \${dollar(
+          limits.maxTotalOpenRisk
+        )} limit\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Ticker open risk",
+    paperMaxLoss !==
+      null &&
+      (
+        limits.maxTickerOpenRisk <=
+          0 ||
+        tickerOpenRisk +
+          paperMaxLoss <=
+          limits.maxTickerOpenRisk
+      ),
+    paperMaxLoss !==
+      null
+      ? \`\${dollar(
+          tickerOpenRisk +
+            paperMaxLoss
+        )} after trade / \${dollar(
+          limits.maxTickerOpenRisk
+        )} limit\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Open position count",
+    allOpenTrades.length <
+      limits.maxOpenPositions,
+    \`\${allOpenTrades.length} open / \${limits.maxOpenPositions} max before new trade\`
+  );
+
+  addCheck(
+    "Long-leg open interest",
+    !!longContract &&
+      longContract.openInterest >=
+        limits.minOpenInterest,
+    longContract
+      ? \`\${compact(
+          longContract.openInterest
+        )} / \${compact(
+          limits.minOpenInterest
+        )} minimum\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Short-leg open interest",
+    !!shortContract &&
+      shortContract.openInterest >=
+        limits.minOpenInterest,
+    shortContract
+      ? \`\${compact(
+          shortContract.openInterest
+        )} / \${compact(
+          limits.minOpenInterest
+        )} minimum\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Long-leg volume",
+    !!longContract &&
+      longContract.volume >=
+        limits.minVolume,
+    longContract
+      ? \`\${compact(
+          longContract.volume
+        )} / \${compact(
+          limits.minVolume
+        )} minimum\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Short-leg volume",
+    !!shortContract &&
+      shortContract.volume >=
+        limits.minVolume,
+    shortContract
+      ? \`\${compact(
+          shortContract.volume
+        )} / \${compact(
+          limits.minVolume
+        )} minimum\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Long bid/ask width",
+    longSpreadPct !==
+      null &&
+      (
+        limits.maxBidAskPct <=
+          0 ||
+        longSpreadPct <=
+          limits.maxBidAskPct
+      ),
+    longSpreadPct !==
+      null
+      ? \`\${longSpreadPct.toFixed(
+          1
+        )}% / \${limits.maxBidAskPct.toFixed(
+          1
+        )}% max\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Short bid/ask width",
+    shortSpreadPct !==
+      null &&
+      (
+        limits.maxBidAskPct <=
+          0 ||
+        shortSpreadPct <=
+          limits.maxBidAskPct
+      ),
+    shortSpreadPct !==
+      null
+      ? \`\${shortSpreadPct.toFixed(
+          1
+        )}% / \${limits.maxBidAskPct.toFixed(
+          1
+        )}% max\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Reward / risk",
+    paperRewardRisk !==
+      null &&
+      paperRewardRisk >=
+        limits.minRewardRisk,
+    paperRewardRisk !==
+      null
+      ? \`\${paperRewardRisk.toFixed(
+          2
+        )}× / \${limits.minRewardRisk.toFixed(
+          2
+        )}× minimum\`
+      : "Unavailable"
+  );
+
+  addCheck(
+    "Duplicate structure",
+    !exactOpenTrade,
+    exactOpenTrade
+      ? "This exact paper structure is already open."
+      : "No duplicate open paper position."
+  );
+
+  const blockingChecks =
+    riskChecks.filter(
+      (check) =>
+        !check.passed
+    );
+
+  const riskPassed =
+    blockingChecks.length ===
+    0;
+
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !contracts.length
+    ) {
+      return;
+    }
+
+    setPaperTrades(
+      (current) => {
+        let changed =
+          false;
+
+        const now =
+          new Date().toISOString();
+
+        const next =
+          current.map(
+            (trade) => {
+              if (
+                trade.status !==
+                  "open" ||
+                trade.ticker !==
+                  ticker ||
+                trade.expiration !==
+                  expiration
+              ) {
+                return trade;
+              }
+
+              const currentEconomics =
+                economicsForTrade(
+                  trade
+                );
+
+              const currentContracts =
+                contractsForTrade(
+                  trade
+                );
+
+              const fillModel =
+                trade.fillModel ??
+                paperSettings
+                  .fillModel;
+
+              const liquidationFill =
+                calculateFill({
+                  economics:
+                    currentEconomics,
+
+                  long:
+                    currentContracts
+                      .longContract,
+
+                  short:
+                    currentContracts
+                      .shortContract,
+
+                  fillModel,
+
+                  action:
+                    "exit",
+                });
+
+              const entryPrice =
+                toNumber(
+                  trade.entryPrice
+                );
+
+              const savedQuantity =
+                Math.max(
+                  1,
+                  Number(
+                    trade.quantity ||
+                    1
+                  )
+                );
+
+              const feeRate =
+                Math.max(
+                  0,
+                  toNumber(
+                    trade
+                      .feePerContractPerLeg
+                  ) ??
+                  toNumber(
+                    paperSettings
+                      .feePerContractPerLeg
+                  ) ??
+                  0
+                );
+
+              const estimatedExitFees =
+                feeRate *
+                2 *
+                savedQuantity;
+
+              if (
+                !liquidationFill ||
+                entryPrice ===
+                  null
+              ) {
+                return trade;
+              }
+
+              const entryFees =
+                toNumber(
+                  trade.entryFees
+                ) ??
+                feeRate *
+                  2 *
+                  savedQuantity;
+
+              const unrealizedPL =
+                (
+                  liquidationFill.fill -
+                  entryPrice
+                ) *
+                  100 *
+                  savedQuantity -
+                entryFees -
+                estimatedExitFees;
+
+              const entryCost =
+                entryPrice *
+                  100 *
+                  savedQuantity +
+                entryFees;
+
+              const unrealizedReturnPct =
+                entryCost >
+                0
+                  ? (
+                      unrealizedPL /
+                      entryCost
+                    ) *
+                    100
+                  : null;
+
+              const maxFavorablePL =
+                Math.max(
+                  toNumber(
+                    trade.maxFavorablePL
+                  ) ??
+                    0,
+                  unrealizedPL
+                );
+
+              const maxAdversePL =
+                Math.min(
+                  toNumber(
+                    trade.maxAdversePL
+                  ) ??
+                    0,
+                  unrealizedPL
+                );
+
+              const shouldUpdate =
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.currentMidpoint
+                    ) ??
+                    0
+                  ) -
+                  liquidationFill
+                    .midpoint
+                ) >
+                  0.0001 ||
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.currentLiquidationPrice
+                    ) ??
+                    0
+                  ) -
+                  liquidationFill
+                    .fill
+                ) >
+                  0.0001 ||
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.currentSpot
+                    ) ??
+                    0
+                  ) -
+                  (
+                    toNumber(
+                      spot
+                    ) ??
+                    0
+                  )
+                ) >
+                  0.0001 ||
+                Math.abs(
+                  (
+                    toNumber(
+                      trade.unrealizedPL
+                    ) ??
+                    0
+                  ) -
+                  unrealizedPL
+                ) >
+                  0.01;
+
+              if (
+                !shouldUpdate
+              ) {
+                return trade;
+              }
+
+              changed =
+                true;
+
+              return {
+                ...trade,
+
+                currentMidpoint:
+                  liquidationFill
+                    .midpoint,
+
+                currentLiquidationPrice:
+                  liquidationFill
+                    .fill,
+
+                currentExitSlippage:
+                  liquidationFill
+                    .slippage,
+
+                currentSpot:
+                  toNumber(
+                    spot
+                  ),
+
+                unrealizedPL,
+
+                unrealizedReturnPct,
+
+                maxFavorablePL,
+
+                maxAdversePL,
+
+                estimatedExitFees,
+
+                currentRsi:
+                  toNumber(
+                    marketContext?.rsi
+                  ),
+
+                currentMacdHistogram:
+                  toNumber(
+                    marketContext
+                      ?.macd
+                      ?.histogram
+                  ),
+
+                updatedAt:
+                  now,
+              };
+            }
+          );
+
+        if (
+          changed
+        ) {
+          persistScannerStateSection(
+            "paper-trades",
+            {
+              paperTrades:
+                next,
+            }
+          ).catch(
+            (err) =>
+              console.warn(
+                "Paper-trade mark update failed:",
+                err
+              )
+          );
+
+          return next;
+        }
+
+        return current;
+      }
+    );
+  }, [
+    hydrated,
+    contracts,
+    ticker,
+    expiration,
+    spot,
+    marketContext?.rsi,
+    marketContext?.macd?.histogram,
+    paperSettings.fillModel,
+    paperSettings.feePerContractPerLeg,
+  ]);
+
   function openPaperTrade() {
     if (
       !economics ||
       !longContract ||
-      !shortContract
+      !shortContract ||
+      !currentEntryFill
     ) {
       return;
     }
-
-    const entryPrice =
-      economics.midpointDebit ??
-      economics.entryDebit;
 
     if (
-      entryPrice ===
-        null ||
-      entryPrice <=
-        0
+      !riskPassed
     ) {
       setError(
-        "A positive spread midpoint or debit is required to open a paper trade."
+        "Risk manager blocked this paper trade. Adjust the structure, quantity, or paper risk limits first."
       );
 
       return;
     }
-
-    const tradeQuantity =
-      Math.max(
-        1,
-        Math.floor(
-          Number(
-            quantity
-          ) ||
-          1
-        )
-      );
 
     const now =
       new Date().toISOString();
+
+    const entryPrice =
+      currentEntryFill
+        .fill;
+
+    const entryFees =
+      entryFee;
+
+    const entrySlippageDollars =
+      currentEntryFill
+        .slippage *
+      100 *
+      tradeQuantity;
 
     const trade = {
       id:
@@ -7289,7 +8132,7 @@ function PaperTradeJournal({
         typeof crypto.randomUUID ===
           "function"
           ? crypto.randomUUID()
-          : `${Date.now()}-${ticker}-paper`,
+          : \`\${Date.now()}-\${ticker}-paper\`,
 
       status:
         "open",
@@ -7313,18 +8156,37 @@ function PaperTradeJournal({
       quantity:
         tradeQuantity,
 
-      fillMethod:
-        economics.midpointDebit !==
-        null
-          ? "midpoint"
-          : "conservative_debit",
+      fillModel:
+        paperSettings
+          .fillModel,
+
+      feePerContractPerLeg:
+        paperSettings
+          .feePerContractPerLeg,
+
+      entryTheoreticalMidpoint:
+        currentEntryFill
+          .midpoint,
 
       entryPrice,
 
+      entrySlippage:
+        currentEntryFill
+          .slippage,
+
+      entrySlippageDollars,
+
+      entryFees,
+
+      estimatedRoundTripFees:
+        entryFees +
+        estimatedExitFee,
+
       entryCost:
         entryPrice *
-        100 *
-        tradeQuantity,
+          100 *
+          tradeQuantity +
+        entryFees,
 
       openedAt:
         now,
@@ -7343,19 +8205,39 @@ function PaperTradeJournal({
         ),
 
       currentMidpoint:
-        entryPrice,
+        currentEntryFill
+          .midpoint,
+
+      currentLiquidationPrice:
+        currentEntryFill
+          .midpoint,
 
       unrealizedPL:
-        0,
+        -entryFees,
 
       unrealizedReturnPct:
-        0,
+        entryPrice >
+        0
+          ? (
+              -entryFees /
+              (
+                entryPrice *
+                  100 *
+                  tradeQuantity +
+                entryFees
+              )
+            ) *
+            100
+          : 0,
 
       maxFavorablePL:
         0,
 
       maxAdversePL:
-        0,
+        Math.min(
+          0,
+          -entryFees
+        ),
 
       entryRsi:
         toNumber(
@@ -7391,25 +8273,38 @@ function PaperTradeJournal({
       entryVega:
         economics.netVega,
 
+      paperMaxLoss,
+
+      paperMaxProfit,
+
+      paperRewardRisk,
+
       maxLoss:
-        economics.maxLoss !==
-        null
-          ? economics.maxLoss *
-            tradeQuantity
-          : null,
+        paperMaxLoss,
 
       maxProfit:
-        economics.maxProfit !==
-        null
-          ? economics.maxProfit *
-            tradeQuantity
-          : null,
+        paperMaxProfit,
 
       breakeven:
         economics.breakeven,
 
       rewardRisk:
-        economics.rewardRisk,
+        paperRewardRisk,
+
+      riskSnapshot: {
+        limits:
+          paperSettings
+            .riskLimits,
+
+        checks:
+          riskChecks,
+
+        totalOpenRiskBefore:
+          totalOpenRisk,
+
+        tickerOpenRiskBefore:
+          tickerOpenRisk,
+      },
 
       entryPutOIWall:
         fullChainAnalysis
@@ -7438,6 +8333,15 @@ function PaperTradeJournal({
 
         mark:
           longContract.mark,
+
+        volume:
+          longContract.volume,
+
+        openInterest:
+          longContract.openInterest,
+
+        bidAskPct:
+          longSpreadPct,
       },
 
       entryShortQuote: {
@@ -7449,6 +8353,15 @@ function PaperTradeJournal({
 
         mark:
           shortContract.mark,
+
+        volume:
+          shortContract.volume,
+
+        openInterest:
+          shortContract.openInterest,
+
+        bidAskPct:
+          shortSpreadPct,
       },
 
       realizedPL:
@@ -7458,6 +8371,9 @@ function PaperTradeJournal({
         null,
 
       exitPrice:
+        null,
+
+      exitReason:
         null,
 
       exitSpot:
@@ -7482,10 +8398,34 @@ function PaperTradeJournal({
         trade
       );
 
-    const exitPrice =
-      currentEconomics
-        ?.midpointDebit ??
-      null;
+    const currentContracts =
+      contractsForTrade(
+        trade
+      );
+
+    const fillModel =
+      trade.fillModel ??
+      paperSettings
+        .fillModel;
+
+    const exitFill =
+      calculateFill({
+        economics:
+          currentEconomics,
+
+        long:
+          currentContracts
+            .longContract,
+
+        short:
+          currentContracts
+            .shortContract,
+
+        fillModel,
+
+        action:
+          "exit",
+      });
 
     const entryPrice =
       toNumber(
@@ -7493,8 +8433,7 @@ function PaperTradeJournal({
       );
 
     if (
-      exitPrice ===
-        null ||
+      !exitFill ||
       entryPrice ===
         null
     ) {
@@ -7505,7 +8444,7 @@ function PaperTradeJournal({
       return;
     }
 
-    const tradeQuantity =
+    const savedQuantity =
       Math.max(
         1,
         Number(
@@ -7514,16 +8453,51 @@ function PaperTradeJournal({
         )
       );
 
+    const feeRate =
+      Math.max(
+        0,
+        toNumber(
+          trade
+            .feePerContractPerLeg
+        ) ??
+        toNumber(
+          paperSettings
+            .feePerContractPerLeg
+        ) ??
+        0
+      );
+
+    const entryFees =
+      toNumber(
+        trade.entryFees
+      ) ??
+      feeRate *
+        2 *
+        savedQuantity;
+
+    const exitFees =
+      feeRate *
+      2 *
+      savedQuantity;
+
     const realizedPL =
       (
-        exitPrice -
+        exitFill.fill -
         entryPrice
       ) *
-      100 *
-      tradeQuantity;
+        100 *
+        savedQuantity -
+      entryFees -
+      exitFees;
 
     const now =
       new Date().toISOString();
+
+    const reason =
+      exitReasons[
+        trade.id
+      ] ??
+      "manual_close";
 
     const nextTrades =
       paperTrades.map(
@@ -7536,11 +8510,48 @@ function PaperTradeJournal({
                 status:
                   "closed",
 
-                exitPrice,
+                exitTheoreticalMidpoint:
+                  exitFill
+                    .midpoint,
+
+                exitPrice:
+                  exitFill
+                    .fill,
+
+                exitSlippage:
+                  exitFill
+                    .slippage,
+
+                exitSlippageDollars:
+                  exitFill
+                    .slippage *
+                  100 *
+                  savedQuantity,
+
+                exitFees,
+
+                totalFees:
+                  entryFees +
+                  exitFees,
+
+                exitReason:
+                  reason,
 
                 exitSpot:
                   toNumber(
                     spot
+                  ),
+
+                exitRsi:
+                  toNumber(
+                    marketContext?.rsi
+                  ),
+
+                exitMacdHistogram:
+                  toNumber(
+                    marketContext
+                      ?.macd
+                      ?.histogram
                   ),
 
                 realizedPL,
@@ -7580,6 +8591,20 @@ function PaperTradeJournal({
       nextTrades
     );
 
+    setExitReasons(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[
+          trade.id
+        ];
+
+        return next;
+      }
+    );
+
     setError(
       ""
     );
@@ -7604,6 +8629,17 @@ function PaperTradeJournal({
     );
   }
 
+  const fillModelLabel =
+    paperSettings
+      .fillModel ===
+      "midpoint"
+      ? "Midpoint"
+      : paperSettings
+          .fillModel ===
+          "conservative"
+        ? "Conservative bid/ask"
+        : "25% toward bid/ask";
+
   return (
     <div className="mt-5 rounded-xl border border-cyan-500/25 bg-cyan-500/[0.025] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -7613,11 +8649,11 @@ function PaperTradeJournal({
           </div>
 
           <div className="mt-1 text-lg font-bold">
-            Trade journal + simulated execution
+            Trade journal + risk-managed simulated execution
           </div>
 
           <div className="mt-1 text-[10px] text-zinc-500">
-            Paper trades use the current spread midpoint as the simulated fill. No Robinhood order is submitted.
+            Paper-only execution. No Robinhood order is submitted.
           </div>
         </div>
 
@@ -7685,16 +8721,242 @@ function PaperTradeJournal({
           value={
             winRate !==
             null
-              ? `${winRate.toFixed(
+              ? \`\${winRate.toFixed(
                   1
-                )}%`
+                )}%\`
               : "—"
           }
           subtext="Descriptive only; not a profitability forecast."
         />
       </div>
 
-      <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-4">
+      <div className="mt-5 rounded-xl border border-violet-500/20 bg-violet-500/[0.025] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[9px] uppercase tracking-widest text-violet-400">
+              Paper execution settings
+            </div>
+
+            <div className="mt-1 text-sm font-bold">
+              Fill model + hard paper risk limits
+            </div>
+
+            <div className="mt-1 text-[9px] text-zinc-600">
+              These are editable paper-testing controls, not live-trading recommendations.
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {settingsStatus && (
+              <span className="text-[9px] text-zinc-500">
+                {settingsStatus}
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={
+                savePaperSettings
+              }
+              className="rounded border border-violet-400/40 bg-violet-400/[0.05] px-3 py-1.5 text-[9px] uppercase tracking-widest text-violet-300"
+            >
+              Save paper settings
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+              Fill model
+            </div>
+
+            <select
+              value={
+                settingsDraft
+                  .fillModel
+              }
+              onChange={(
+                event
+              ) =>
+                setSettingsDraft(
+                  (current) => ({
+                    ...current,
+
+                    fillModel:
+                      event.target
+                        .value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs"
+            >
+              <option value="midpoint">
+                Midpoint
+              </option>
+
+              <option value="quarter_spread">
+                25% toward bid/ask
+              </option>
+
+              <option value="conservative">
+                Conservative bid/ask
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+              Fee / contract / leg
+            </div>
+
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={
+                settingsDraft
+                  .feePerContractPerLeg
+              }
+              onChange={(
+                event
+              ) =>
+                setSettingsDraft(
+                  (current) => ({
+                    ...current,
+
+                    feePerContractPerLeg:
+                      event.target
+                        .value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm outline-none"
+            />
+          </label>
+
+          <MetricBox
+            label="Active Fill Model"
+            value={
+              fillModelLabel
+            }
+            subtext="Saved settings apply to new paper trades."
+          />
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              key:
+                "maxLossPerTrade",
+
+              label:
+                "Max loss / trade ($)",
+            },
+
+            {
+              key:
+                "maxTotalOpenRisk",
+
+              label:
+                "Max total open risk ($)",
+            },
+
+            {
+              key:
+                "maxTickerOpenRisk",
+
+              label:
+                "Max ticker open risk ($)",
+            },
+
+            {
+              key:
+                "maxOpenPositions",
+
+              label:
+                "Max open positions",
+            },
+
+            {
+              key:
+                "minOpenInterest",
+
+              label:
+                "Min OI / leg",
+            },
+
+            {
+              key:
+                "minVolume",
+
+              label:
+                "Min volume / leg",
+            },
+
+            {
+              key:
+                "maxBidAskPct",
+
+              label:
+                "Max bid/ask width %",
+            },
+
+            {
+              key:
+                "minRewardRisk",
+
+              label:
+                "Min reward / risk",
+            },
+          ].map(
+            (field) => (
+              <label
+                key={
+                  field.key
+                }
+                className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  {field.label}
+                </div>
+
+                <input
+                  type="number"
+                  min="0"
+                  step={
+                    field.key ===
+                    "minRewardRisk"
+                      ? "0.1"
+                      : field.key ===
+                          "maxBidAskPct"
+                        ? "0.5"
+                        : "1"
+                  }
+                  value={
+                    settingsDraft
+                      .riskLimits[
+                      field.key
+                    ]
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    updateDraftRisk(
+                      field.key,
+                      event.target
+                        .value
+                    )
+                  }
+                  className="mt-2 w-full bg-transparent font-mono text-sm outline-none"
+                />
+              </label>
+            )
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-zinc-800 bg-black/25 p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-[9px] uppercase tracking-widest text-zinc-500">
@@ -7704,20 +8966,36 @@ function PaperTradeJournal({
             <div className="mt-1 font-mono text-sm font-bold">
               {longContract &&
               shortContract
-                ? `${money(
+                ? \`\${money(
                     longContract.strike
-                  )} / ${money(
+                  )} / \${money(
                     shortContract.strike
-                  )} ${optionType.toUpperCase()} spread`
+                  )} \${optionType.toUpperCase()} spread\`
                 : "Select both legs"}
             </div>
 
             <div className="mt-1 text-[10px] text-zinc-500">
-              Paper fill{" "}
+              Midpoint{" "}
+              <span className="font-mono text-zinc-300">
+                {money(
+                  currentEntryFill
+                    ?.midpoint
+                )}
+              </span>
+              {" · "}
+              Simulated fill{" "}
               <span className="font-mono text-cyan-300">
                 {money(
-                  economics?.midpointDebit ??
-                  economics?.entryDebit
+                  currentEntryFill
+                    ?.fill
+                )}
+              </span>
+              {" · "}
+              Entry slippage{" "}
+              <span className="font-mono text-amber-300">
+                {money(
+                  currentEntryFill
+                    ?.slippage
                 )}
               </span>
               {" · "}
@@ -7764,15 +9042,138 @@ function PaperTradeJournal({
                 !economics ||
                 !longContract ||
                 !shortContract ||
-                !!exactOpenTrade
+                !riskPassed
               }
               className="rounded border border-cyan-400/50 bg-cyan-400/10 px-4 py-2 text-[10px] font-bold text-cyan-300 disabled:cursor-not-allowed disabled:opacity-30"
             >
               {exactOpenTrade
                 ? "PAPER TRADE OPEN"
-                : "OPEN PAPER TRADE"}
+                : riskPassed
+                  ? "OPEN PAPER TRADE"
+                  : "BLOCKED BY RISK MANAGER"}
             </button>
           </div>
+        </div>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricBox
+            label="Paper Max Loss"
+            value={dollar(
+              paperMaxLoss
+            )}
+            valueClass="text-red-300"
+          />
+
+          <MetricBox
+            label="Paper Max Profit"
+            value={dollar(
+              paperMaxProfit
+            )}
+            valueClass="text-emerald-300"
+          />
+
+          <MetricBox
+            label="Paper Reward / Risk"
+            value={
+              paperRewardRisk !==
+              null
+                ? \`\${paperRewardRisk.toFixed(
+                    2
+                  )}×\`
+                : "—"
+            }
+          />
+
+          <MetricBox
+            label="Estimated Round-Trip Fees"
+            value={money(
+              entryFee +
+              estimatedExitFee
+            )}
+          />
+        </div>
+      </div>
+
+      <div
+        className={\`mt-4 rounded-xl border p-4 \${
+          riskPassed
+            ? "border-emerald-500/20 bg-emerald-500/[0.025]"
+            : "border-red-500/25 bg-red-500/[0.035]"
+        }\`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div
+              className={\`text-[9px] uppercase tracking-widest \${
+                riskPassed
+                  ? "text-emerald-400"
+                  : "text-red-400"
+              }\`}
+            >
+              Paper risk manager
+            </div>
+
+            <div className="mt-1 text-sm font-bold">
+              {riskPassed
+                ? "All hard checks passed"
+                : \`\${blockingChecks.length} hard check\${
+                    blockingChecks.length ===
+                    1
+                      ? ""
+                      : "s"
+                  } blocking entry\`}
+            </div>
+          </div>
+
+          <div className="text-right text-[9px] text-zinc-500">
+            Open risk{" "}
+            <span className="font-mono text-zinc-200">
+              {dollar(
+                totalOpenRisk
+              )}
+            </span>
+            {" · "}
+            {ticker}{" "}
+            <span className="font-mono text-zinc-200">
+              {dollar(
+                tickerOpenRisk
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {riskChecks.map(
+            (check) => (
+              <div
+                key={
+                  check.name
+                }
+                className={\`rounded-lg border px-3 py-2 \${
+                  check.passed
+                    ? "border-emerald-500/15 bg-emerald-500/[0.02]"
+                    : "border-red-500/25 bg-red-500/[0.04]"
+                }\`}
+              >
+                <div
+                  className={\`text-[9px] uppercase tracking-widest \${
+                    check.passed
+                      ? "text-emerald-400"
+                      : "text-red-400"
+                  }\`}
+                >
+                  {check.passed
+                    ? "PASS"
+                    : "BLOCK"}{" "}
+                  · {check.name}
+                </div>
+
+                <div className="mt-1 text-[9px] text-zinc-500">
+                  {check.detail}
+                </div>
+              </div>
+            )
+          )}
         </div>
       </div>
 
@@ -7795,11 +9196,47 @@ function PaperTradeJournal({
                     trade
                   );
 
-                const currentMidpoint =
+                const currentContracts =
+                  contractsForTrade(
+                    trade
+                  );
+
+                const liveFill =
                   liveEconomics
-                    ?.midpointDebit ??
+                    ? calculateFill({
+                        economics:
+                          liveEconomics,
+
+                        long:
+                          currentContracts
+                            .longContract,
+
+                        short:
+                          currentContracts
+                            .shortContract,
+
+                        fillModel:
+                          trade.fillModel ??
+                          paperSettings
+                            .fillModel,
+
+                        action:
+                          "exit",
+                      })
+                    : null;
+
+                const currentMidpoint =
+                  liveFill
+                    ?.midpoint ??
                   toNumber(
                     trade.currentMidpoint
+                  );
+
+                const liquidationPrice =
+                  liveFill
+                    ?.fill ??
+                  toNumber(
+                    trade.currentLiquidationPrice
                   );
 
                 const currentPL =
@@ -7852,21 +9289,76 @@ function PaperTradeJournal({
                       </div>
 
                       {sameExpiration ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            closePaperTrade(
-                              trade
-                            )
-                          }
-                          disabled={
-                            currentMidpoint ===
-                            null
-                          }
-                          className="rounded border border-amber-500/40 bg-amber-500/[0.06] px-3 py-1.5 text-[9px] uppercase tracking-widest text-amber-300 disabled:opacity-30"
-                        >
-                          Close at midpoint
-                        </button>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label>
+                            <div className="mb-1 text-[9px] uppercase tracking-widest text-zinc-600">
+                              Exit reason
+                            </div>
+
+                            <select
+                              value={
+                                exitReasons[
+                                  trade.id
+                                ] ??
+                                "manual_close"
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setExitReasons(
+                                  (current) => ({
+                                    ...current,
+
+                                    [trade.id]:
+                                      event.target
+                                        .value,
+                                  })
+                                )
+                              }
+                              className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[9px]"
+                            >
+                              <option value="manual_close">
+                                Manual close
+                              </option>
+
+                              <option value="profit_target">
+                                Profit target
+                              </option>
+
+                              <option value="invalidation">
+                                Stop / invalidation
+                              </option>
+
+                              <option value="signal_reversal">
+                                Signal reversal
+                              </option>
+
+                              <option value="expiration_management">
+                                Expiration management
+                              </option>
+
+                              <option value="time_exit">
+                                Time-based exit
+                              </option>
+                            </select>
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              closePaperTrade(
+                                trade
+                              )
+                            }
+                            disabled={
+                              liquidationPrice ===
+                              null
+                            }
+                            className="rounded border border-amber-500/40 bg-amber-500/[0.06] px-3 py-1.5 text-[9px] uppercase tracking-widest text-amber-300 disabled:opacity-30"
+                          >
+                            Close paper trade
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
@@ -7884,13 +9376,16 @@ function PaperTradeJournal({
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                       <MetricBox
-                        label="Entry"
+                        label="Entry Fill"
                         value={money(
                           trade.entryPrice
                         )}
-                        subtext={`${money(
-                          trade.entrySpot
-                        )} spot`}
+                        subtext={\`Mid \${money(
+                          trade.entryTheoreticalMidpoint ??
+                          trade.entryPrice
+                        )} · slip \${money(
+                          trade.entrySlippage
+                        )}\`}
                       />
 
                       <MetricBox
@@ -7898,6 +9393,9 @@ function PaperTradeJournal({
                         value={money(
                           currentMidpoint
                         )}
+                        subtext={\`Liquidation \${money(
+                          liquidationPrice
+                        )}\`}
                       />
 
                       <MetricBox
@@ -7920,23 +9418,23 @@ function PaperTradeJournal({
                             trade.unrealizedReturnPct
                           ) !==
                           null
-                            ? `${signed(
+                            ? \`\${signed(
                                 trade.unrealizedReturnPct,
                                 1
-                              )}% on paper cost`
+                              )}% on paper cost\`
                             : "—"
                         }
                       />
 
                       <MetricBox
                         label="MFE / MAE"
-                        value={`${signedDollar(
+                        value={\`\${signedDollar(
                           trade.maxFavorablePL,
                           0
-                        )} / ${signedDollar(
+                        )} / \${signedDollar(
                           trade.maxAdversePL,
                           0
-                        )}`}
+                        )}\`}
                         subtext="Max favorable / adverse excursion"
                       />
 
@@ -7965,11 +9463,11 @@ function PaperTradeJournal({
 
                       <MetricBox
                         label="Entry OI Walls"
-                        value={`${money(
+                        value={\`\${money(
                           trade.entryPutOIWall
-                        )} / ${money(
+                        )} / \${money(
                           trade.entryCallOIWall
-                        )}`}
+                        )}\`}
                         subtext="Put / Call"
                       />
 
@@ -7978,6 +9476,55 @@ function PaperTradeJournal({
                         value={money(
                           trade.entryGammaConcentration
                         )}
+                      />
+
+                      <MetricBox
+                        label="Fill Model"
+                        value={
+                          trade.fillModel ===
+                          "midpoint"
+                            ? "Midpoint"
+                            : trade.fillModel ===
+                                "conservative"
+                              ? "Conservative"
+                              : "25% toward bid/ask"
+                        }
+                      />
+
+                      <MetricBox
+                        label="Entry Slippage"
+                        value={signedDollar(
+                          trade.entrySlippageDollars,
+                          2
+                        )}
+                      />
+
+                      <MetricBox
+                        label="Fees Paid / Est."
+                        value={money(
+                          (
+                            toNumber(
+                              trade.entryFees
+                            ) ??
+                            0
+                          ) +
+                          (
+                            toNumber(
+                              trade.estimatedExitFees
+                            ) ??
+                            0
+                          )
+                        )}
+                        subtext="Entry + estimated exit"
+                      />
+
+                      <MetricBox
+                        label="Paper Max Risk"
+                        value={dollar(
+                          trade.paperMaxLoss ??
+                          trade.maxLoss
+                        )}
+                        valueClass="text-red-300"
                       />
                     </div>
                   </div>
@@ -8000,7 +9547,7 @@ function PaperTradeJournal({
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-zinc-800">
-            <table className="min-w-[1100px] w-full text-[10px] font-mono">
+            <table className="min-w-[1500px] w-full text-[10px] font-mono">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-500">
                   <th className="px-3 py-2 text-left">
@@ -8012,11 +9559,27 @@ function PaperTradeJournal({
                   </th>
 
                   <th className="px-3 py-2 text-right">
-                    Entry
+                    Entry Mid
                   </th>
 
                   <th className="px-3 py-2 text-right">
-                    Exit
+                    Entry Fill
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Exit Mid
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Exit Fill
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Slippage
+                  </th>
+
+                  <th className="px-3 py-2 text-right">
+                    Fees
                   </th>
 
                   <th className="px-3 py-2 text-right">
@@ -8035,6 +9598,10 @@ function PaperTradeJournal({
                     Hold
                   </th>
 
+                  <th className="px-3 py-2 text-left">
+                    Exit reason
+                  </th>
+
                   <th className="px-3 py-2 text-right">
                     Action
                   </th>
@@ -8043,101 +9610,154 @@ function PaperTradeJournal({
 
               <tbody>
                 {closedTrades.map(
-                  (trade) => (
-                    <tr
-                      key={
-                        trade.id
-                      }
-                      className="border-b border-zinc-900"
-                    >
-                      <td className="px-3 py-2">
-                        {money(
-                          trade.longStrike
-                        )}{" "}
-                        /{" "}
-                        {money(
-                          trade.shortStrike
-                        )}{" "}
-                        {String(
-                          trade.optionType
-                        ).toUpperCase()}
-                      </td>
+                  (trade) => {
+                    const totalSlippage =
+                      (
+                        toNumber(
+                          trade.entrySlippageDollars
+                        ) ??
+                        0
+                      ) +
+                      (
+                        toNumber(
+                          trade.exitSlippageDollars
+                        ) ??
+                        0
+                      );
 
-                      <td className="px-3 py-2 text-right">
-                        {trade.quantity}
-                      </td>
-
-                      <td className="px-3 py-2 text-right">
-                        {money(
-                          trade.entryPrice
-                        )}
-                      </td>
-
-                      <td className="px-3 py-2 text-right">
-                        {money(
-                          trade.exitPrice
-                        )}
-                      </td>
-
-                      <td
-                        className={`px-3 py-2 text-right ${
-                          toNumber(
-                            trade.realizedPL
-                          ) >
-                          0
-                            ? "text-emerald-300"
-                            : toNumber(
-                                  trade.realizedPL
-                                ) <
-                                0
-                              ? "text-red-300"
-                              : "text-zinc-300"
-                        }`}
+                    return (
+                      <tr
+                        key={
+                          trade.id
+                        }
+                        className="border-b border-zinc-900"
                       >
-                        {signedDollar(
-                          trade.realizedPL,
-                          0
-                        )}
-                      </td>
+                        <td className="px-3 py-2">
+                          {money(
+                            trade.longStrike
+                          )}{" "}
+                          /{" "}
+                          {money(
+                            trade.shortStrike
+                          )}{" "}
+                          {String(
+                            trade.optionType
+                          ).toUpperCase()}
+                        </td>
 
-                      <td className="px-3 py-2 text-right text-emerald-300">
-                        {signedDollar(
-                          trade.maxFavorablePL,
-                          0
-                        )}
-                      </td>
+                        <td className="px-3 py-2 text-right">
+                          {trade.quantity}
+                        </td>
 
-                      <td className="px-3 py-2 text-right text-red-300">
-                        {signedDollar(
-                          trade.maxAdversePL,
-                          0
-                        )}
-                      </td>
+                        <td className="px-3 py-2 text-right">
+                          {money(
+                            trade.entryTheoreticalMidpoint ??
+                            trade.entryPrice
+                          )}
+                        </td>
 
-                      <td className="px-3 py-2 text-right">
-                        {toNumber(
-                          trade.holdingMinutes
-                        ) !==
-                        null
-                          ? `${trade.holdingMinutes}m`
-                          : "—"}
-                      </td>
+                        <td className="px-3 py-2 text-right">
+                          {money(
+                            trade.entryPrice
+                          )}
+                        </td>
 
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteClosedPaperTrade(
-                              trade.id
-                            )
-                          }
-                          className="text-zinc-600 hover:text-red-300"
+                        <td className="px-3 py-2 text-right">
+                          {money(
+                            trade.exitTheoreticalMidpoint ??
+                            trade.exitPrice
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right">
+                          {money(
+                            trade.exitPrice
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right text-amber-300">
+                          {signedDollar(
+                            totalSlippage,
+                            2
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right">
+                          {money(
+                            trade.totalFees
+                          )}
+                        </td>
+
+                        <td
+                          className={\`px-3 py-2 text-right \${
+                            toNumber(
+                              trade.realizedPL
+                            ) >
+                            0
+                              ? "text-emerald-300"
+                              : toNumber(
+                                    trade.realizedPL
+                                  ) <
+                                  0
+                                ? "text-red-300"
+                                : "text-zinc-300"
+                          }\`}
                         >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  )
+                          {signedDollar(
+                            trade.realizedPL,
+                            0
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right text-emerald-300">
+                          {signedDollar(
+                            trade.maxFavorablePL,
+                            0
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right text-red-300">
+                          {signedDollar(
+                            trade.maxAdversePL,
+                            0
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right">
+                          {toNumber(
+                            trade.holdingMinutes
+                          ) !==
+                          null
+                            ? \`\${trade.holdingMinutes}m\`
+                            : "—"}
+                        </td>
+
+                        <td className="px-3 py-2 text-left">
+                          {String(
+                            trade.exitReason ??
+                            "manual_close"
+                          ).replaceAll(
+                            "_",
+                            " "
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              deleteClosedPaperTrade(
+                                trade.id
+                              )
+                            }
+                            className="text-zinc-600 hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
                 )}
               </tbody>
             </table>
@@ -8146,7 +9766,7 @@ function PaperTradeJournal({
       )}
 
       <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
-        Paper fills are simulated from displayed midpoint quotes and do not model queue position, partial fills, assignment, commissions, or slippage yet. This journal is for testing the strategy process before enabling real-money execution.
+        Paper fills now model configurable execution quality, slippage, and fees. The hard risk manager blocks new paper entries that violate the saved limits. These controls are for validating the process before any real-money execution is enabled.
       </div>
     </div>
   );
