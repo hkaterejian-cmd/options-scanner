@@ -5891,6 +5891,17 @@ function ManualStrategyBuilder({
     setComparisonIvChange,
   ] = useState(0);
 
+  const [
+    comparisonHydrated,
+    setComparisonHydrated,
+  ] = useState(false);
+
+  const COMPARISON_STORAGE_KEY =
+    "optionsScannerSavedComparisonsV1";
+
+  const comparisonStorageId =
+    `${ticker}|${expiration}`;
+
   const typedContracts =
     useMemo(
       () =>
@@ -5981,19 +5992,379 @@ function ManualStrategyBuilder({
 
   useEffect(() => {
     setSavedSpreads([]);
+
     setComparisonPrice(
       Number(
         spot || 0
       )
     );
+
     setComparisonDays(0);
     setComparisonIvChange(0);
+
+    setComparisonHydrated(
+      false
+    );
   }, [
+    ticker,
     expiration,
   ]);
 
   useEffect(() => {
     if (
+      !contracts.length ||
+      !ticker ||
+      !expiration
+    ) {
+      return;
+    }
+
+    let storedEntry =
+      null;
+
+    if (
+      typeof window !==
+      "undefined"
+    ) {
+      try {
+        const raw =
+          window.localStorage.getItem(
+            COMPARISON_STORAGE_KEY
+          );
+
+        const parsed =
+          raw
+            ? JSON.parse(
+                raw
+              )
+            : {};
+
+        storedEntry =
+          parsed?.[
+            comparisonStorageId
+          ] ??
+          null;
+      } catch {
+        storedEntry =
+          null;
+      }
+    }
+
+    const definitions =
+      Array.isArray(
+        storedEntry?.spreads
+      )
+        ? storedEntry.spreads
+        : [];
+
+    const rebuilt =
+      definitions
+        .map(
+          (definition) => {
+            const type =
+              definition?.optionType;
+
+            const currentLong =
+              contracts.find(
+                (contract) =>
+                  contract.type ===
+                    type &&
+                  contract.strike ===
+                    Number(
+                      definition.longStrike
+                    )
+              );
+
+            const currentShort =
+              contracts.find(
+                (contract) =>
+                  contract.type ===
+                    type &&
+                  contract.strike ===
+                    Number(
+                      definition.shortStrike
+                    )
+              );
+
+            if (
+              !currentLong ||
+              !currentShort
+            ) {
+              return null;
+            }
+
+            const validOrientation =
+              type === "call"
+                ? currentShort.strike >
+                  currentLong.strike
+                : currentShort.strike <
+                  currentLong.strike;
+
+            if (
+              !validOrientation
+            ) {
+              return null;
+            }
+
+            const strategy = {
+              name:
+                type === "call"
+                  ? "Manual Bull Call Debit Spread"
+                  : "Manual Bear Put Debit Spread",
+
+              bias:
+                type === "call"
+                  ? "Bullish"
+                  : "Bearish",
+
+              legs: [
+                {
+                  action:
+                    type === "call"
+                      ? "Long call"
+                      : "Long put",
+
+                  side:
+                    "long",
+
+                  contract:
+                    currentLong,
+                },
+
+                {
+                  action:
+                    type === "call"
+                      ? "Short call"
+                      : "Short put",
+
+                  side:
+                    "short",
+
+                  contract:
+                    currentShort,
+                },
+              ],
+            };
+
+            const rebuiltEconomics =
+              calculateSpreadEconomics(
+                strategy
+              );
+
+            if (
+              !rebuiltEconomics
+            ) {
+              return null;
+            }
+
+            return {
+              key:
+                `${type}:${currentLong.id}:${currentShort.id}`,
+
+              optionType:
+                type,
+
+              label:
+                `${String(
+                  type
+                ).toUpperCase()} ${money(
+                  currentLong.strike
+                )}/${money(
+                  currentShort.strike
+                )}`,
+
+              longStrike:
+                currentLong.strike,
+
+              shortStrike:
+                currentShort.strike,
+
+              strategy,
+
+              economics:
+                rebuiltEconomics,
+            };
+          }
+        )
+        .filter(
+          Boolean
+        )
+        .slice(
+          0,
+          4
+        );
+
+    setSavedSpreads(
+      rebuilt
+    );
+
+    const storedPrice =
+      toNumber(
+        storedEntry
+          ?.scenario
+          ?.price
+      );
+
+    const storedDays =
+      toNumber(
+        storedEntry
+          ?.scenario
+          ?.days
+      );
+
+    const storedIv =
+      toNumber(
+        storedEntry
+          ?.scenario
+          ?.ivChange
+      );
+
+    setComparisonPrice(
+      storedPrice ??
+      Number(
+        spot || 0
+      )
+    );
+
+    setComparisonDays(
+      storedDays ??
+      0
+    );
+
+    setComparisonIvChange(
+      storedIv ??
+      0
+    );
+
+    setComparisonHydrated(
+      true
+    );
+  }, [
+    ticker,
+    expiration,
+    contracts,
+    comparisonStorageId,
+    spot,
+  ]);
+
+  useEffect(() => {
+    if (
+      !comparisonHydrated ||
+      !ticker ||
+      !expiration ||
+      typeof window ===
+        "undefined"
+    ) {
+      return;
+    }
+
+    try {
+      const raw =
+        window.localStorage.getItem(
+          COMPARISON_STORAGE_KEY
+        );
+
+      const parsed =
+        raw
+          ? JSON.parse(
+              raw
+            )
+          : {};
+
+      const next =
+        parsed &&
+        typeof parsed ===
+          "object" &&
+        !Array.isArray(
+          parsed
+        )
+          ? {
+              ...parsed,
+            }
+          : {};
+
+      if (
+        savedSpreads.length ===
+        0
+      ) {
+        delete next[
+          comparisonStorageId
+        ];
+      } else {
+        next[
+          comparisonStorageId
+        ] = {
+          ticker,
+          expiration,
+
+          spreads:
+            savedSpreads.map(
+              (item) => ({
+                optionType:
+                  item.optionType,
+
+                longStrike:
+                  item.longStrike,
+
+                shortStrike:
+                  item.shortStrike,
+              })
+            ),
+
+          scenario: {
+            price:
+              toNumber(
+                comparisonPrice
+              ) ??
+              Number(
+                spot || 0
+              ),
+
+            days:
+              Math.max(
+                0,
+                toNumber(
+                  comparisonDays
+                ) ??
+                  0
+              ),
+
+            ivChange:
+              toNumber(
+                comparisonIvChange
+              ) ??
+              0,
+          },
+
+          updatedAt:
+            new Date().toISOString(),
+        };
+      }
+
+      window.localStorage.setItem(
+        COMPARISON_STORAGE_KEY,
+        JSON.stringify(
+          next
+        )
+      );
+    } catch {
+      // Storage can fail in restrictive browser modes.
+    }
+  }, [
+    comparisonHydrated,
+    savedSpreads,
+    comparisonPrice,
+    comparisonDays,
+    comparisonIvChange,
+    comparisonStorageId,
+    ticker,
+    expiration,
+    spot,
+  ]);
+
+  useEffect(() => {
+    if (
+      comparisonHydrated &&
       savedSpreads.length === 0
     ) {
       setComparisonPrice(
@@ -6005,6 +6376,7 @@ function ManualStrategyBuilder({
   }, [
     spot,
     savedSpreads.length,
+    comparisonHydrated,
   ]);
 
   const longContract =
@@ -6826,23 +7198,31 @@ function ManualStrategyBuilder({
                 </div>
 
                 <div className="mt-1 text-[10px] text-zinc-500">
-                  Save up to four structures from this expiration and compare them under the same scenario.
+                  Save up to four structures from this expiration. The comparison and shared scenario are stored automatically in this browser.
                 </div>
               </div>
 
-              {savedSpreads.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSavedSpreads(
-                      []
-                    )
-                  }
-                  className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-red-400/40 hover:text-red-300"
-                >
-                  Clear comparison
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {savedSpreads.length > 0 && (
+                  <div className="rounded border border-indigo-400/20 bg-indigo-400/[0.04] px-2 py-1 text-[9px] uppercase tracking-widest text-indigo-300">
+                    Saved in browser
+                  </div>
+                )}
+
+                {savedSpreads.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSavedSpreads(
+                        []
+                      )
+                    }
+                    className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-red-400/40 hover:text-red-300"
+                  >
+                    Clear comparison
+                  </button>
+                )}
+              </div>
             </div>
 
             {savedSpreads.length ===
@@ -6852,7 +7232,7 @@ function ManualStrategyBuilder({
                 <span className="text-fuchsia-300">
                   Add to comparison
                 </span>
-                . Change the strikes or switch between calls and puts to save additional structures.
+                . Change the strikes or switch between calls and puts to add more. Once added, the comparison persists after refresh or reopening the ticker.
               </div>
             ) : (
               <>
@@ -7265,7 +7645,7 @@ function ManualStrategyBuilder({
                 </div>
 
                 <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
-                  Comparison rows are descriptive and use the same displayed quote snapshot and the same hypothetical price, time, and IV inputs. The table does not rank or select a preferred structure.
+                  Comparison structures and shared scenario inputs are saved in browser storage. When reopened, the selected strikes are rebuilt using the current Robinhood quote snapshot. The table remains descriptive and does not rank or select a preferred structure.
                 </div>
               </>
             )}
