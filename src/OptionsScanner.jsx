@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -22,6 +23,7 @@ const DEFAULT_TICKERS = [
 
 const STORAGE_KEY = "options-scanner-tickers-robinhood-v2";
 const SAVED_PLANS_STORAGE_KEY = "optionsScannerSavedStrategyPlansV1";
+const AUTO_REFRESH_STORAGE_KEY = "optionsScannerAutoRefreshV1";
 
 /*
   =========================================================
@@ -136,6 +138,37 @@ function formatSignedNumber(value, digits = 2) {
   return `${n >= 0 ? "+" : ""}${n.toFixed(
     digits
   )}`;
+}
+
+function formatDataAge(seconds) {
+  const n =
+    toNumber(
+      seconds
+    );
+
+  if (n === null) {
+    return "Never";
+  }
+
+  if (n < 5) {
+    return "Just now";
+  }
+
+  if (n < 60) {
+    return `${Math.floor(
+      n
+    )}s ago`;
+  }
+
+  if (n < 3600) {
+    return `${Math.floor(
+      n / 60
+    )}m ago`;
+  }
+
+  return `${Math.floor(
+    n / 3600
+  )}h ago`;
 }
 
 function buildPlanStatusConditions(plan, liveData) {
@@ -2507,6 +2540,93 @@ export default function OptionsScanner() {
   ] =
     useState(0);
 
+  const [
+    autoRefreshEnabled,
+    setAutoRefreshEnabled,
+  ] =
+    useState(() => {
+      try {
+        const raw =
+          window.localStorage.getItem(
+            AUTO_REFRESH_STORAGE_KEY
+          );
+
+        const parsed =
+          raw
+            ? JSON.parse(
+                raw
+              )
+            : null;
+
+        return !!parsed?.enabled;
+      } catch {
+        return false;
+      }
+    });
+
+  const [
+    autoRefreshSeconds,
+    setAutoRefreshSeconds,
+  ] =
+    useState(() => {
+      try {
+        const raw =
+          window.localStorage.getItem(
+            AUTO_REFRESH_STORAGE_KEY
+          );
+
+        const parsed =
+          raw
+            ? JSON.parse(
+                raw
+              )
+            : null;
+
+        const seconds =
+          Number(
+            parsed?.seconds
+          );
+
+        return [
+          30,
+          60,
+          300,
+        ].includes(
+          seconds
+        )
+          ? seconds
+          : 60;
+      } catch {
+        return 60;
+      }
+    });
+
+  const [
+    dataUpdatedAt,
+    setDataUpdatedAt,
+  ] =
+    useState(null);
+
+  const [
+    nowTick,
+    setNowTick,
+  ] =
+    useState(
+      Date.now()
+    );
+
+  const [
+    newConditionCount,
+    setNewConditionCount,
+  ] =
+    useState(0);
+
+  const scanInProgressRef =
+    useRef(false);
+
+  const previousConditionKeysRef =
+    useRef(null);
+
   const savedPlans =
     useMemo(
       () =>
@@ -2527,6 +2647,75 @@ export default function OptionsScanner() {
         savedPlans,
       ]
     );
+
+  const activeConditionKeys =
+    useMemo(
+      () => {
+        const keys = [];
+
+        for (
+          const plan of savedPlans
+        ) {
+          const liveData =
+            tickerData.find(
+              (item) =>
+                item.ticker ===
+                normalizeTicker(
+                  plan?.ticker
+                )
+            );
+
+          const conditions =
+            buildPlanStatusConditions(
+              plan,
+              liveData
+            );
+
+          for (
+            const condition of conditions
+          ) {
+            keys.push(
+              `${plan.id || plan.structureKey}|${condition.label}`
+            );
+          }
+        }
+
+        return keys.sort();
+      },
+      [
+        savedPlans,
+        tickerData,
+      ]
+    );
+
+  const dataAgeSeconds =
+    dataUpdatedAt
+      ? Math.max(
+          0,
+          Math.floor(
+            (
+              nowTick -
+              dataUpdatedAt
+            ) /
+              1000
+          )
+        )
+      : null;
+
+  const staleThresholdSeconds =
+    autoRefreshEnabled
+      ? Math.max(
+          autoRefreshSeconds *
+            2,
+          60
+        )
+      : 120;
+
+  const dataIsStale =
+    dataAgeSeconds !==
+      null &&
+    dataAgeSeconds >
+      staleThresholdSeconds;
 
   const visibleCards =
     useMemo(
@@ -2582,6 +2771,88 @@ export default function OptionsScanner() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    const timer =
+      window.setInterval(
+        () =>
+          setNowTick(
+            Date.now()
+          ),
+        1000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        AUTO_REFRESH_STORAGE_KEY,
+        JSON.stringify({
+          enabled:
+            autoRefreshEnabled,
+
+          seconds:
+            autoRefreshSeconds,
+        })
+      );
+    } catch {
+      // Ignore restrictive browser storage modes.
+    }
+  }, [
+    autoRefreshEnabled,
+    autoRefreshSeconds,
+  ]);
+
+  useEffect(() => {
+    const previous =
+      previousConditionKeysRef.current;
+
+    const currentSet =
+      new Set(
+        activeConditionKeys
+      );
+
+    if (
+      previous === null
+    ) {
+      previousConditionKeysRef.current =
+        currentSet;
+
+      return;
+    }
+
+    let added = 0;
+
+    for (
+      const key of currentSet
+    ) {
+      if (
+        !previous.has(
+          key
+        )
+      ) {
+        added += 1;
+      }
+    }
+
+    if (added > 0) {
+      setNewConditionCount(
+        (current) =>
+          current +
+          added
+      );
+    }
+
+    previousConditionKeysRef.current =
+      currentSet;
+  }, [
+    activeConditionKeys,
+  ]);
 
   /*
     =======================================================
@@ -2653,6 +2924,12 @@ export default function OptionsScanner() {
     useCallback(
       async (list) => {
         if (
+          scanInProgressRef.current
+        ) {
+          return;
+        }
+
+        if (
           !list?.length
         ) {
           setTickerData(
@@ -2661,6 +2938,9 @@ export default function OptionsScanner() {
 
           return;
         }
+
+        scanInProgressRef.current =
+          true;
 
         setLoading(true);
         setLoadProgress(0);
@@ -2672,81 +2952,95 @@ export default function OptionsScanner() {
         const failures =
           {};
 
-        for (
-          let i = 0;
-          i < list.length;
-          i++
-        ) {
-          const ticker =
-            normalizeTicker(
-              list[i]
-            );
-
-          if (!ticker) {
-            continue;
-          }
-
-          try {
-            const data =
-              await fetchTicker(
-                ticker
+        try {
+          for (
+            let i = 0;
+            i < list.length;
+            i++
+          ) {
+            const ticker =
+              normalizeTicker(
+                list[i]
               );
 
-            collected.push(
-              data
-            );
+            if (!ticker) {
+              continue;
+            }
 
-            const map =
-              new Map(
-                collected.map(
-                  (item) => [
-                    item.ticker,
-                    item,
-                  ]
-                )
-              );
-
-            const ordered =
-              list
-                .map(
-                  (symbol) =>
-                    map.get(
-                      normalizeTicker(
-                        symbol
-                      )
-                    )
-                )
-                .filter(
-                  Boolean
+            try {
+              const data =
+                await fetchTicker(
+                  ticker
                 );
 
-            setTickerData(
-              ordered
+              collected.push(
+                data
+              );
+
+              const map =
+                new Map(
+                  collected.map(
+                    (item) => [
+                      item.ticker,
+                      item,
+                    ]
+                  )
+                );
+
+              const ordered =
+                list
+                  .map(
+                    (symbol) =>
+                      map.get(
+                        normalizeTicker(
+                          symbol
+                        )
+                      )
+                  )
+                  .filter(
+                    Boolean
+                  );
+
+              setTickerData(
+                ordered
+              );
+
+            } catch (error) {
+              failures[
+                ticker
+              ] =
+                error.message;
+
+              setErrors({
+                ...failures,
+              });
+            }
+
+            setLoadProgress(
+              Math.round(
+                (
+                  (i + 1) /
+                  list.length
+                ) *
+                  100
+              )
             );
-
-          } catch (error) {
-            failures[
-              ticker
-            ] =
-              error.message;
-
-            setErrors({
-              ...failures,
-            });
           }
 
-          setLoadProgress(
-            Math.round(
-              (
-                (i + 1) /
-                list.length
-              ) *
-                100
-            )
+          setDataUpdatedAt(
+            Date.now()
           );
-        }
 
-        setLoading(false);
+          setNowTick(
+            Date.now()
+          );
+
+        } finally {
+          setLoading(false);
+
+          scanInProgressRef.current =
+            false;
+        }
       },
       []
     );
@@ -2778,6 +3072,38 @@ export default function OptionsScanner() {
 
   }, [
     refreshStatus,
+    scan,
+  ]);
+
+  useEffect(() => {
+    if (
+      !autoRefreshEnabled ||
+      !robinhoodStatus.connected ||
+      !tickers.length
+    ) {
+      return;
+    }
+
+    const timer =
+      window.setInterval(
+        () => {
+          scan(
+            tickers
+          );
+        },
+        autoRefreshSeconds *
+          1000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, [
+    autoRefreshEnabled,
+    autoRefreshSeconds,
+    robinhoodStatus.connected,
+    tickers,
     scan,
   ]);
 
@@ -3077,12 +3403,16 @@ Do not invent missing values.`
             </button>
 
             <button
-              onClick={() =>
+              onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
                     !current
-                )
-              }
+                );
+
+                setNewConditionCount(
+                  0
+                );
+              }}
               className={`rounded-lg border px-3 py-2 text-xs font-mono ${
                 savedPlansOpen
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
@@ -3093,6 +3423,13 @@ Do not invent missing values.`
               <span className="font-bold">
                 {savedPlans.length}
               </span>
+
+              {newConditionCount >
+              0 && (
+                <span className="ml-2 inline-flex animate-pulse rounded-full border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                  NEW {newConditionCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -3141,6 +3478,36 @@ Do not invent missing values.`
 
             <span className="text-zinc-600">
               Read-only scanner
+            </span>
+
+            <span
+              className={
+                dataIsStale
+                  ? "text-amber-400"
+                  : dataUpdatedAt
+                    ? "text-sky-400"
+                    : "text-zinc-600"
+              }
+            >
+              {dataIsStale
+                ? "Data stale · "
+                : "Updated "}
+              {formatDataAge(
+                dataAgeSeconds
+              )}
+            </span>
+
+            <span
+              className={
+                autoRefreshEnabled
+                  ? "text-emerald-400"
+                  : "text-zinc-600"
+              }
+            >
+              Auto{" "}
+              {autoRefreshEnabled
+                ? `${autoRefreshSeconds}s`
+                : "OFF"}
             </span>
           </div>
         </div>
@@ -3231,6 +3598,71 @@ Do not invent missing values.`
                 />
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() =>
+                setAutoRefreshEnabled(
+                  (current) =>
+                    !current
+                )
+              }
+              disabled={
+                !robinhoodStatus.connected
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-mono disabled:opacity-30 ${
+                autoRefreshEnabled
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
+              }`}
+            >
+              {autoRefreshEnabled
+                ? "● Auto Refresh"
+                : "○ Auto Refresh"}
+            </button>
+
+            <select
+              value={
+                autoRefreshSeconds
+              }
+              onChange={(
+                event
+              ) =>
+                setAutoRefreshSeconds(
+                  Number(
+                    event.target.value
+                  )
+                )
+              }
+              className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-mono text-zinc-300 outline-none"
+            >
+              <option value={30}>
+                30 sec
+              </option>
+
+              <option value={60}>
+                1 min
+              </option>
+
+              <option value={300}>
+                5 min
+              </option>
+            </select>
+
+            <div
+              className={`rounded-lg border px-3 py-2 text-[10px] font-mono ${
+                dataIsStale
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-500"
+              }`}
+            >
+              {dataIsStale
+                ? "STALE · "
+                : "Updated "}
+              {formatDataAge(
+                dataAgeSeconds
+              )}
+            </div>
           </div>
         </div>
       </section>
