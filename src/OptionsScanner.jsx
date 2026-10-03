@@ -5173,6 +5173,17 @@ function WalkForwardLabPanel({
       ? result.selected_oos_by_ticker
       : [];
 
+  const robustnessGate =
+    result?.robustness_gate ??
+    null;
+
+  const learningDataset =
+    Array.isArray(
+      result?.oos_learning_dataset
+    )
+      ? result.oos_learning_dataset
+      : [];
+
   const pct =
     (
       value,
@@ -5706,6 +5717,81 @@ function WalkForwardLabPanel({
               )}
             </div>
 
+            {robustnessGate && (
+              <div className={
+                robustnessGate.status === "pass"
+                  ? "mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4"
+                  : "mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.03] p-4"
+              }>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className={
+                      robustnessGate.status === "pass"
+                        ? "text-[9px] uppercase tracking-widest text-emerald-400"
+                        : "text-[9px] uppercase tracking-widest text-red-400"
+                    }>
+                      Research robustness gate
+                    </div>
+
+                    <div className="mt-1 text-sm font-bold text-white">
+                      {robustnessGate.status === "pass"
+                        ? "Historical proxy passed all robustness checks"
+                        : "Historical proxy still fails one or more robustness checks"}
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-600">
+                      {robustnessGate.passed_count}/{robustnessGate.total_checks} checks passed.
+                    </div>
+                  </div>
+
+                  <div className={
+                    robustnessGate.status === "pass"
+                      ? "rounded border border-emerald-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300"
+                      : "rounded border border-red-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-red-300"
+                  }>
+                    {String(robustnessGate.status).toUpperCase()}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {(robustnessGate.checks ?? []).map(
+                    (check) => (
+                      <div
+                        key={check.id}
+                        className={
+                          check.passed
+                            ? "rounded-lg border border-emerald-500/15 bg-emerald-500/[0.02] p-3"
+                            : "rounded-lg border border-red-500/20 bg-red-500/[0.03] p-3"
+                        }
+                      >
+                        <div className={
+                          check.passed
+                            ? "text-[9px] uppercase tracking-widest text-emerald-400"
+                            : "text-[9px] uppercase tracking-widest text-red-400"
+                        }>
+                          {check.passed ? "PASS" : "FAIL"} · {check.label}
+                        </div>
+
+                        <div className="mt-1 font-mono text-xs text-zinc-200">
+                          {typeof check.actual === "number"
+                            ? check.actual.toFixed(2)
+                            : check.actual ?? "—"}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-600">
+                          Target {check.threshold}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+
+                <div className="mt-3 text-[9px] text-zinc-600">
+                  {robustnessGate.note}
+                </div>
+              </div>
+            )}
+
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.025] p-3">
                 <div className="text-[9px] uppercase tracking-widest text-emerald-400">
@@ -6104,6 +6190,20 @@ function WalkForwardLabPanel({
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.025] p-3">
+              <div className="text-[9px] uppercase tracking-widest text-cyan-400">
+                Out-of-sample learning dataset
+              </div>
+
+              <div className="mt-1 text-sm font-bold text-white">
+                {learningDataset.length} unseen row{learningDataset.length === 1 ? "" : "s"} available
+              </div>
+
+              <div className="mt-2 text-[9px] leading-relaxed text-zinc-500">
+                Each row comes only from an unseen walk-forward test window and carries the ticker, selected rule, fold number, RSI, MACD, signal scores, entry and exit prices, MFE, MAE, friction, and realized directional return.
               </div>
             </div>
 
