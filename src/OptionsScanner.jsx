@@ -4281,6 +4281,848 @@ function HistoricalBacktestPanel({
   );
 }
 
+
+/*
+  =========================================================
+  BACKTEST RESEARCH LAB
+  =========================================================
+*/
+
+function BacktestResearchLabPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const selected =
+    result?.selected_candidate ??
+    null;
+
+  const baseline =
+    result?.baseline ??
+    null;
+
+  const topCandidates =
+    Array.isArray(
+      result?.top_candidates
+    )
+      ? result.top_candidates
+      : [];
+
+  const frictionSensitivity =
+    Array.isArray(
+      result?.selected_candidate_friction_sensitivity
+    )
+      ? result.selected_candidate_friction_sensitivity
+      : [];
+
+  const tickerTest =
+    Array.isArray(
+      result?.selected_candidate_test_by_ticker
+    )
+      ? result.selected_candidate_test_by_ticker
+      : [];
+
+  const pct =
+    (
+      value,
+      digits = 2
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const plainPct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function directionLabel(
+    value
+  ) {
+    if (
+      value ===
+      "bullish_only"
+    ) {
+      return "Bullish only";
+    }
+
+    if (
+      value ===
+      "bearish_only"
+    ) {
+      return "Bearish only";
+    }
+
+    return "Both directions";
+  }
+
+  function SplitCard({
+    label,
+    summary,
+    accent,
+  }) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+        <div
+          className={
+            "text-[10px] font-bold " +
+            accent
+          }
+        >
+          {label}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Stat
+            label="Trades"
+            value={
+              summary?.trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Win Rate"
+            value={plainPct(
+              summary?.win_rate_pct
+            )}
+          />
+
+          <Stat
+            label="Avg Return"
+            value={pct(
+              summary?.average_return_pct
+            )}
+          />
+
+          <Stat
+            label="Compounded"
+            value={pct(
+              summary?.compounded_return_pct
+            )}
+          />
+
+          <Stat
+            label="Profit Factor"
+            value={ratio(
+              summary?.profit_factor
+            )}
+          />
+
+          <Stat
+            label="Max DD"
+            value={pct(
+              summary?.max_drawdown_pct
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-fuchsia-400">
+              Backtest research lab
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Parameter research with an untouched recent test window
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Searches direction, hold period, RSI thresholds, and signal strength using earlier data. The recent 20% is not used to select the candidate.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            Research only · underlying proxy
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Scope
+            </div>
+
+            <select
+              value={
+                settings.scope
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    scope:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value="selected">
+                One ticker
+              </option>
+
+              <option value="all">
+                All scanner tickers
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              disabled={
+                settings.scope ===
+                "all"
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white disabled:opacity-40"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Lookback
+            </div>
+
+            <select
+              value={
+                settings.lookbackDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    lookbackDays:
+                      Number(
+                        event.target.value
+                      ),
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value={365}>
+                1 year
+              </option>
+
+              <option value={730}>
+                2 years
+              </option>
+
+              <option value={1095}>
+                3 years
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Base friction bps
+            </div>
+
+            <input
+              type="number"
+              min="0"
+              max="500"
+              step="1"
+              value={
+                settings.costBps
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    costBps:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !tickers.length
+              }
+              className="w-full rounded border border-fuchsia-400/50 bg-fuchsia-400/10 px-4 py-2.5 text-[10px] font-bold text-fuchsia-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {loading
+                ? "RUNNING RESEARCH..."
+                : connected
+                  ? "RUN RESEARCH LAB"
+                  : "CONNECT ROBINHOOD"}
+            </button>
+          </div>
+        </div>
+
+        <label className="mt-3 flex items-center gap-2 text-[9px] text-zinc-500">
+          <input
+            type="checkbox"
+            checked={
+              settings.nonOverlapping
+            }
+            onChange={(
+              event
+            ) =>
+              setSettings(
+                (current) => ({
+                  ...current,
+
+                  nonOverlapping:
+                    event.target.checked,
+                })
+              )
+            }
+          />
+
+          Prevent overlapping same-ticker proxy trades.
+        </label>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Research error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              Tested{" "}
+              <span className="font-mono text-zinc-200">
+                {result.search_space?.variant_count ?? 0}
+              </span>{" "}
+              variants across{" "}
+              <span className="font-mono text-zinc-200">
+                {result.symbols?.length ?? 0}
+              </span>{" "}
+              ticker{result.symbols?.length === 1 ? "" : "s"}.{" "}
+              {result.search_space?.selection_rule}
+            </div>
+
+            {selected ? (
+              <div className="mt-4 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/[0.035] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
+                      Validation-selected candidate
+                    </div>
+
+                    <div className="mt-1 text-base font-bold text-white">
+                      {directionLabel(
+                        selected.parameters?.direction_mode
+                      )} · {selected.parameters?.hold_sessions} sessions · RSI {selected.parameters?.rsi_profile} · {selected.parameters?.required_signals}/3 signals
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-500">
+                      Selection score {toNumber(
+                        selected.validation_score
+                      ) !== null
+                        ? Number(
+                            selected.validation_score
+                          ).toFixed(
+                            3
+                          )
+                        : "—"} · test results were not used to choose this row.
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-violet-500/30 bg-violet-500/[0.05] px-2 py-1 text-[9px] uppercase tracking-widest text-violet-300">
+                    Holdout test preserved
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <SplitCard
+                    label="Training · early 60%"
+                    summary={
+                      selected.train
+                    }
+                    accent="text-zinc-300"
+                  />
+
+                  <SplitCard
+                    label="Validation · middle 20%"
+                    summary={
+                      selected.validation
+                    }
+                    accent="text-fuchsia-300"
+                  />
+
+                  <SplitCard
+                    label="Untouched test · recent 20%"
+                    summary={
+                      selected.test
+                    }
+                    accent="text-amber-300"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-3 text-[10px] text-amber-300">
+                No candidate had enough training and validation trades to qualify for selection.
+              </div>
+            )}
+
+            {baseline && (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Current-rule baseline
+                </div>
+
+                <div className="mt-1 text-[10px] text-zinc-400">
+                  Both directions · 5 sessions · RSI 55/45 · 2 of 3 signals
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat
+                    label="Validation Avg"
+                    value={pct(
+                      baseline.validation?.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Validation PF"
+                    value={ratio(
+                      baseline.validation?.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Test Avg"
+                    value={pct(
+                      baseline.test?.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Test Compounded"
+                    value={pct(
+                      baseline.test?.compounded_return_pct
+                    )}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Top validation candidates
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1200px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-left">
+                        Direction
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Hold
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        RSI
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Signals
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Train N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test DD
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {topCandidates.map(
+                      (candidate) => (
+                        <tr
+                          key={
+                            candidate.id
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td className="px-3 py-2 text-left">
+                            {directionLabel(
+                              candidate.parameters?.direction_mode
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.hold_sessions}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.rsi_profile}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.required_signals}/3
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.train?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.validation?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-fuchsia-300">
+                            {pct(
+                              candidate.validation?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.validation?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.test?.trades ?? 0}
+                          </td>
+
+                          <td
+                            className={
+                              "px-3 py-2 text-right " +
+                              (
+                                toNumber(
+                                  candidate.test?.average_return_pct
+                                ) >
+                                0
+                                  ? "text-emerald-300"
+                                  : "text-red-300"
+                              )
+                            }
+                          >
+                            {pct(
+                              candidate.test?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.test?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-red-300">
+                            {pct(
+                              candidate.test?.max_drawdown_pct
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {frictionSensitivity.length >
+              0 && (
+              <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Selected candidate · friction sensitivity
+                  </div>
+
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-[9px] font-mono">
+                      <thead>
+                        <tr className="border-b border-zinc-800 text-zinc-600">
+                          <th className="py-1.5 text-left">
+                            Bps
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Val Avg
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Test Avg
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Test PF
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Test DD
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {frictionSensitivity.map(
+                          (row) => (
+                            <tr
+                              key={
+                                row.cost_bps
+                              }
+                              className="border-b border-zinc-900"
+                            >
+                              <td className="py-1.5 text-left">
+                                {row.cost_bps}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {pct(
+                                  row.validation?.average_return_pct
+                                )}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {pct(
+                                  row.test?.average_return_pct
+                                )}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {ratio(
+                                  row.test?.profit_factor
+                                )}
+                              </td>
+
+                              <td className="py-1.5 text-right text-red-300">
+                                {pct(
+                                  row.test?.max_drawdown_pct
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Selected candidate · recent test by ticker
+                  </div>
+
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-[9px] font-mono">
+                      <thead>
+                        <tr className="border-b border-zinc-800 text-zinc-600">
+                          <th className="py-1.5 text-left">
+                            Ticker
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            N
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Win%
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            Avg
+                          </th>
+
+                          <th className="py-1.5 text-right">
+                            PF
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {tickerTest.map(
+                          (row) => (
+                            <tr
+                              key={
+                                row.symbol
+                              }
+                              className="border-b border-zinc-900"
+                            >
+                              <td className="py-1.5 text-left text-white">
+                                {row.symbol}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {row.summary?.trades ?? 0}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {plainPct(
+                                  row.summary?.win_rate_pct
+                                )}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {pct(
+                                  row.summary?.average_return_pct
+                                )}
+                              </td>
+
+                              <td className="py-1.5 text-right">
+                                {ratio(
+                                  row.summary?.profit_factor
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              Do not keep changing parameters after seeing the recent test result. Repeatedly tuning to the holdout turns it into training data and defeats the purpose of the test. This lab still tests underlying directional returns, not historical option-spread P/L.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -4701,6 +5543,51 @@ export default function OptionsScanner() {
 
       costBps:
         0,
+
+      nonOverlapping:
+        true,
+    });
+
+  const [
+    researchOpen,
+    setResearchOpen,
+  ] =
+    useState(false);
+
+  const [
+    researchResult,
+    setResearchResult,
+  ] =
+    useState(null);
+
+  const [
+    researchLoading,
+    setResearchLoading,
+  ] =
+    useState(false);
+
+  const [
+    researchError,
+    setResearchError,
+  ] =
+    useState("");
+
+  const [
+    researchSettings,
+    setResearchSettings,
+  ] =
+    useState({
+      scope:
+        "selected",
+
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        730,
+
+      costBps:
+        10,
 
       nonOverlapping:
         true,
@@ -5485,6 +6372,85 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runBacktestResearch =
+    useCallback(
+      async () => {
+        setResearchLoading(
+          true
+        );
+
+        setResearchError(
+          ""
+        );
+
+        try {
+          const symbols =
+            researchSettings.scope ===
+            "all"
+              ? tickers
+              : [
+                  researchSettings.symbol,
+                ];
+
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/backtest-research",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbols,
+
+                    lookbackDays:
+                      Number(
+                        researchSettings.lookbackDays
+                      ),
+
+                    costBps:
+                      Number(
+                        researchSettings.costBps
+                      ) ||
+                      0,
+
+                    nonOverlapping:
+                      !!researchSettings.nonOverlapping,
+                  }),
+              }
+            );
+
+          setResearchResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setResearchError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setResearchLoading(
+            false
+          );
+        }
+      },
+      [
+        researchSettings,
+        tickers,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -6142,6 +7108,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setResearchOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                researchOpen
+                  ? "rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-mono text-fuchsia-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Research Lab
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -6627,6 +7610,37 @@ Do not invent missing values.`
           }
           onRun={
             runHistoricalBacktest
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* RESEARCH LAB */}
+
+      {researchOpen && (
+        <BacktestResearchLabPanel
+          tickers={
+            tickers
+          }
+          settings={
+            researchSettings
+          }
+          setSettings={
+            setResearchSettings
+          }
+          result={
+            researchResult
+          }
+          loading={
+            researchLoading
+          }
+          error={
+            researchError
+          }
+          onRun={
+            runBacktestResearch
           }
           connected={
             robinhoodStatus.connected
