@@ -233,6 +233,29 @@ async function callRobinhood(toolName, args) {
   return unwrapMcp(envelope);
 }
 
+async function persistScannerStateSection(
+  section,
+  body
+) {
+  return fetchJson(
+    `${PROXY_BASE}/scanner/state/${section}`,
+    {
+      method:
+        "PUT",
+
+      headers: {
+        "Content-Type":
+          "application/json",
+      },
+
+      body:
+        JSON.stringify(
+          body
+        ),
+    }
+  );
+}
+
 /* =========================================================
    OPTION DATA
 ========================================================= */
@@ -5377,43 +5400,73 @@ function SavedStrategyPlansPanel({
         ),
     };
 
+    const index =
+      savedPlans.findIndex(
+        (item) =>
+          item.structureKey ===
+          currentStructureKey
+      );
+
+    let nextPlans;
+
+    if (
+      index === -1
+    ) {
+      nextPlans = [
+        plan,
+        ...savedPlans,
+      ];
+    } else {
+      nextPlans = [
+        ...savedPlans,
+      ];
+
+      nextPlans[index] =
+        plan;
+    }
+
     setSavedPlans(
-      (current) => {
-        const index =
-          current.findIndex(
-            (item) =>
-              item.structureKey ===
-              currentStructureKey
-          );
+      nextPlans
+    );
 
-        if (
-          index === -1
-        ) {
-          return [
-            plan,
-            ...current,
-          ];
-        }
-
-        const next = [
-          ...current,
-        ];
-
-        next[index] =
-          plan;
-
-        return next;
+    persistScannerStateSection(
+      "saved-plans",
+      {
+        savedPlans:
+          nextPlans,
       }
+    ).catch(
+      (error) =>
+        console.warn(
+          "Saved-plan backend persistence failed:",
+          error
+        )
     );
   }
 
   function deletePlan(id) {
+    const nextPlans =
+      savedPlans.filter(
+        (plan) =>
+          plan.id !==
+          id
+      );
+
     setSavedPlans(
-      (current) =>
-        current.filter(
-          (plan) =>
-            plan.id !==
-            id
+      nextPlans
+    );
+
+    persistScannerStateSection(
+      "saved-plans",
+      {
+        savedPlans:
+          nextPlans,
+      }
+    ).catch(
+      (error) =>
+        console.warn(
+          "Saved-plan backend persistence failed:",
+          error
         )
     );
   }
@@ -7155,6 +7208,20 @@ function ManualStrategyBuilder({
         JSON.stringify(
           next
         )
+      );
+
+      persistScannerStateSection(
+        "saved-comparisons",
+        {
+          savedComparisons:
+            next,
+        }
+      ).catch(
+        (error) =>
+          console.warn(
+            "Comparison backend persistence failed:",
+            error
+          )
       );
     } catch {
       // Storage can fail in restrictive browser modes.
