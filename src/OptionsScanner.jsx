@@ -21,6 +21,7 @@ const DEFAULT_TICKERS = [
 ];
 
 const STORAGE_KEY = "options-scanner-tickers-robinhood-v2";
+const SAVED_PLANS_STORAGE_KEY = "optionsScannerSavedStrategyPlansV1";
 
 /*
   =========================================================
@@ -151,6 +152,58 @@ function saveTickers(tickers) {
   } catch (error) {
     console.warn("Failed to save tickers:", error);
   }
+}
+
+function loadSavedStrategyPlans() {
+  if (
+    typeof window ===
+    "undefined"
+  ) {
+    return [];
+  }
+
+  try {
+    const raw =
+      window.localStorage.getItem(
+        SAVED_PLANS_STORAGE_KEY
+      );
+
+    if (!raw) {
+      return [];
+    }
+
+    const parsed =
+      JSON.parse(raw);
+
+    return Array.isArray(
+      parsed
+    )
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function savedPlanCountsByTicker(plans) {
+  const counts = {};
+
+  for (const plan of plans) {
+    const ticker =
+      normalizeTicker(
+        plan?.ticker
+      );
+
+    if (!ticker) {
+      continue;
+    }
+
+    counts[ticker] =
+      (counts[ticker] || 0) +
+      1;
+  }
+
+  return counts;
 }
 
 /*
@@ -1193,6 +1246,7 @@ function TickerCard({
   data,
   selected,
   onSelect,
+  savedPlanCount = 0,
 }) {
   const rsi =
     rsiLabel(
@@ -1288,6 +1342,13 @@ function TickerCard({
               data.expiration
             )}`}
             className="border-amber-500/30 bg-amber-500/10 text-amber-300"
+          />
+        )}
+
+        {savedPlanCount > 0 && (
+          <DataPill
+            text={`${savedPlanCount} SAVED PLAN${savedPlanCount === 1 ? "" : "S"}`}
+            className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
           />
         )}
       </div>
@@ -1407,6 +1468,303 @@ function TickerCard({
 
       <div className="mt-3 text-center text-[9px] uppercase tracking-widest text-zinc-600">
         Click for full option chain
+      </div>
+    </div>
+  );
+}
+
+/*
+  =========================================================
+  SAVED PLANS SUMMARY
+  =========================================================
+*/
+
+function SavedPlansSummary({
+  plans,
+  tickerData,
+  onOpenTicker,
+}) {
+  const groups =
+    useMemo(
+      () => {
+        const map =
+          new Map();
+
+        for (const plan of plans) {
+          const ticker =
+            normalizeTicker(
+              plan?.ticker
+            );
+
+          if (!ticker) {
+            continue;
+          }
+
+          if (
+            !map.has(
+              ticker
+            )
+          ) {
+            map.set(
+              ticker,
+              []
+            );
+          }
+
+          map.get(
+            ticker
+          ).push(
+            plan
+          );
+        }
+
+        return [
+          ...map.entries(),
+        ]
+          .map(
+            ([
+              ticker,
+              tickerPlans,
+            ]) => ({
+              ticker,
+
+              plans:
+                [...tickerPlans].sort(
+                  (a, b) =>
+                    new Date(
+                      b.updatedAt ||
+                      b.savedAt ||
+                      0
+                    ).getTime() -
+                    new Date(
+                      a.updatedAt ||
+                      a.savedAt ||
+                      0
+                    ).getTime()
+                ),
+            })
+          )
+          .sort(
+            (a, b) =>
+              a.ticker.localeCompare(
+                b.ticker
+              )
+          );
+      },
+      [
+        plans,
+      ]
+    );
+
+  if (!plans.length) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 p-5 text-center">
+        <div className="text-[10px] uppercase tracking-widest text-emerald-400">
+          Saved strategy plans
+        </div>
+
+        <div className="mt-2 text-sm text-zinc-400">
+          No saved plans yet.
+        </div>
+
+        <div className="mt-1 text-[10px] text-zinc-600">
+          Open a ticker, build a manual spread, and use Save Current Plan.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-emerald-400">
+            Saved strategy plans
+          </div>
+
+          <div className="mt-1 text-lg font-bold text-white">
+            {plans.length} saved plan{plans.length === 1 ? "" : "s"} across{" "}
+            {groups.length} ticker{groups.length === 1 ? "" : "s"}
+          </div>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            Snapshot information from the plans saved inside each ticker.
+          </div>
+        </div>
+
+        <div className="rounded border border-emerald-500/20 bg-emerald-500/[0.04] px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300">
+          Browser saved
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {groups.map(
+          (group) => {
+            const liveData =
+              tickerData.find(
+                (item) =>
+                  item.ticker ===
+                  group.ticker
+              ) ??
+              null;
+
+            return (
+              <div
+                key={
+                  group.ticker
+                }
+                className="rounded-xl border border-zinc-800 bg-black/25 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-xl font-black text-white">
+                        {group.ticker}
+                      </span>
+
+                      <span className="font-mono text-sm text-zinc-300">
+                        {liveData
+                          ? formatMoney(
+                              liveData.price
+                            )
+                          : "Not loaded"}
+                      </span>
+                    </div>
+
+                    <div className="mt-1 text-[9px] uppercase tracking-widest text-emerald-400">
+                      {group.plans.length} saved plan{group.plans.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={
+                      !liveData
+                    }
+                    onClick={() =>
+                      onOpenTicker(
+                        group.ticker
+                      )
+                    }
+                    className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-emerald-400/40 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    Open ticker
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {group.plans.map(
+                    (plan) => (
+                      <div
+                        key={
+                          plan.id ||
+                          plan.structureKey
+                        }
+                        className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div
+                              className={`text-[9px] uppercase tracking-widest ${
+                                plan.optionType ===
+                                "call"
+                                  ? "text-emerald-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {plan.optionType ===
+                              "call"
+                                ? "Call spread"
+                                : "Put spread"}{" "}
+                              ·{" "}
+                              {formatDate(
+                                plan.expiration
+                              )}
+                            </div>
+
+                            <div className="mt-1 font-mono text-sm font-bold text-white">
+                              {formatMoney(
+                                plan.longStrike
+                              )}
+                              {" / "}
+                              {formatMoney(
+                                plan.shortStrike
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                              Saved debit
+                            </div>
+
+                            <div className="font-mono text-xs text-amber-300">
+                              {formatMoney(
+                                plan.savedEntryDebit
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <Stat
+                            label="Saved Spot"
+                            value={formatMoney(
+                              plan.savedSpot
+                            )}
+                          />
+
+                          <Stat
+                            label="Breakeven"
+                            value={formatMoney(
+                              plan.breakeven
+                            )}
+                          />
+
+                          <Stat
+                            label="Max Loss"
+                            value={
+                              plan.maxLoss !==
+                                null &&
+                              plan.maxLoss !==
+                                undefined
+                                ? `${Math.round(
+                                    plan.maxLoss
+                                  )}`
+                                : "—"
+                            }
+                            color="text-red-300"
+                          />
+
+                          <Stat
+                            label="Max Profit"
+                            value={
+                              plan.maxProfit !==
+                                null &&
+                              plan.maxProfit !==
+                                undefined
+                                ? `${Math.round(
+                                    plan.maxProfit
+                                  )}`
+                                : "—"
+                            }
+                            color="text-emerald-300"
+                          />
+                        </div>
+
+                        {plan.notes && (
+                          <div className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-zinc-500">
+                            {plan.notes}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            );
+          }
+        )}
       </div>
     </div>
   );
@@ -1596,18 +1954,93 @@ export default function OptionsScanner() {
   ] =
     useState(false);
 
+  const [
+    savedPlansOpen,
+    setSavedPlansOpen,
+  ] =
+    useState(true);
+
+  const [
+    savedPlansRevision,
+    setSavedPlansRevision,
+  ] =
+    useState(0);
+
+  const savedPlans =
+    useMemo(
+      () =>
+        loadSavedStrategyPlans(),
+      [
+        savedPlansRevision,
+        selected,
+      ]
+    );
+
+  const savedPlanCounts =
+    useMemo(
+      () =>
+        savedPlanCountsByTicker(
+          savedPlans
+        ),
+      [
+        savedPlans,
+      ]
+    );
+
   const visibleCards =
     useMemo(
       () =>
-        filterCards(
-          tickerData,
-          filterMode
-        ),
+        filterMode ===
+        "Saved Plans"
+          ? tickerData.filter(
+              (item) =>
+                (
+                  savedPlanCounts[
+                    item.ticker
+                  ] || 0
+                ) > 0
+            )
+          : filterCards(
+              tickerData,
+              filterMode
+            ),
       [
         tickerData,
         filterMode,
+        savedPlanCounts,
       ]
     );
+
+  useEffect(() => {
+    const refreshSavedPlans =
+      () =>
+        setSavedPlansRevision(
+          (value) =>
+            value + 1
+        );
+
+    window.addEventListener(
+      "storage",
+      refreshSavedPlans
+    );
+
+    window.addEventListener(
+      "focus",
+      refreshSavedPlans
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        refreshSavedPlans
+      );
+
+      window.removeEventListener(
+        "focus",
+        refreshSavedPlans
+      );
+    };
+  }, []);
 
   /*
     =======================================================
@@ -1934,6 +2367,22 @@ export default function OptionsScanner() {
       }
     };
 
+  const openSavedTicker =
+    (ticker) => {
+      const match =
+        tickerData.find(
+          (item) =>
+            item.ticker ===
+            ticker
+        );
+
+      if (match) {
+        setSelected(
+          match
+        );
+      }
+    };
+
   /*
     =======================================================
     AI MARKET SUMMARY
@@ -2006,6 +2455,7 @@ Do not invent missing values.`
 
   const filterModes = [
     "All",
+    "Saved Plans",
     "RSI Overbought",
     "RSI Oversold",
     "MACD Bullish",
@@ -2083,6 +2533,25 @@ Do not invent missing values.`
               className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-300 hover:border-zinc-500"
             >
               ↻ Status
+            </button>
+
+            <button
+              onClick={() =>
+                setSavedPlansOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-mono ${
+                savedPlansOpen
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              Saved Plans{" "}
+              <span className="font-bold">
+                {savedPlans.length}
+              </span>
             </button>
 
             <button
@@ -2281,6 +2750,26 @@ Do not invent missing values.`
         </div>
       </section>
 
+      {/* SAVED PLANS SUMMARY */}
+
+      {savedPlansOpen && (
+        <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+          <div className="mx-auto max-w-7xl">
+            <SavedPlansSummary
+              plans={
+                savedPlans
+              }
+              tickerData={
+                tickerData
+              }
+              onOpenTicker={
+                openSavedTicker
+              }
+            />
+          </div>
+        </section>
+      )}
+
       {/* CARDS */}
 
       <main className="mx-auto max-w-7xl px-6 py-6">
@@ -2351,6 +2840,11 @@ Do not invent missing values.`
                 onSelect={
                   setSelected
                 }
+                savedPlanCount={
+                  savedPlanCounts[
+                    data.ticker
+                  ] || 0
+                }
               />
             )
           )}
@@ -2364,11 +2858,16 @@ Do not invent missing values.`
           data={
             selected
           }
-          onClose={() =>
+          onClose={() => {
             setSelected(
               null
-            )
-          }
+            );
+
+            setSavedPlansRevision(
+              (value) =>
+                value + 1
+            );
+          }}
         />
       )}
 
