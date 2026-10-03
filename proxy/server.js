@@ -1071,6 +1071,857 @@ function mergePaperTrades(
   ];
 }
 
+
+/*
+  =========================================================
+  HISTORICAL SIGNAL BACKTEST
+  =========================================================
+*/
+
+function unwrapRobinhoodToolResult(result) {
+  if (result?.structuredContent) {
+    return result.structuredContent;
+  }
+
+  const blocks =
+    Array.isArray(
+      result?.content
+    )
+      ? result.content
+      : [];
+
+  for (const block of blocks) {
+    if (
+      block?.type !==
+        "text" ||
+      typeof block.text !==
+        "string"
+    ) {
+      continue;
+    }
+
+    try {
+      return JSON.parse(
+        block.text
+      );
+    } catch {
+      // Continue.
+    }
+  }
+
+  return result;
+}
+
+function extractBacktestBars(payload) {
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  const result =
+    data?.results?.[0] ??
+    null;
+
+  const bars =
+    Array.isArray(
+      result?.bars
+    )
+      ? result.bars
+      : [];
+
+  return bars
+    .filter(
+      (bar) =>
+        !bar?.interpolated
+    )
+    .map(
+      (bar) => ({
+        time:
+          bar.begins_at,
+
+        open:
+          finiteNumber(
+            bar.open_price
+          ),
+
+        high:
+          finiteNumber(
+            bar.high_price
+          ),
+
+        low:
+          finiteNumber(
+            bar.low_price
+          ),
+
+        close:
+          finiteNumber(
+            bar.close_price
+          ),
+
+        volume:
+          finiteNumber(
+            bar.volume
+          ),
+      })
+    )
+    .filter(
+      (bar) =>
+        bar.time &&
+        bar.open !== null &&
+        bar.high !== null &&
+        bar.low !== null &&
+        bar.close !== null
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(
+          a.time
+        ) -
+        Date.parse(
+          b.time
+        )
+    );
+}
+
+function extractBacktestIndicator(
+  payload,
+  type
+) {
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  const indicators =
+    Array.isArray(
+      data?.indicators
+    )
+      ? data.indicators
+      : [];
+
+  const indicator =
+    indicators.find(
+      (item) =>
+        item?.type ===
+        type
+    ) ??
+    indicators[0] ??
+    null;
+
+  const series =
+    Array.isArray(
+      indicator?.series
+    )
+      ? indicator.series
+      : [];
+
+  return series
+    .filter(
+      (item) =>
+        item?.begins_at
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(
+          a.begins_at
+        ) -
+        Date.parse(
+          b.begins_at
+        )
+    );
+}
+
+function scannerMomentumSignal({
+  rsi,
+  macdHistogram,
+  changePct,
+}) {
+  let bullishScore =
+    0;
+
+  let bearishScore =
+    0;
+
+  if (
+    rsi !==
+    null
+  ) {
+    if (
+      rsi >=
+      55
+    ) {
+      bullishScore +=
+        1;
+    }
+
+    if (
+      rsi <=
+      45
+    ) {
+      bearishScore +=
+        1;
+    }
+  }
+
+  if (
+    macdHistogram !==
+    null
+  ) {
+    if (
+      macdHistogram >
+      0
+    ) {
+      bullishScore +=
+        1;
+    }
+
+    if (
+      macdHistogram <
+      0
+    ) {
+      bearishScore +=
+        1;
+    }
+  }
+
+  if (
+    changePct !==
+    null
+  ) {
+    if (
+      changePct >
+      0
+    ) {
+      bullishScore +=
+        1;
+    }
+
+    if (
+      changePct <
+      0
+    ) {
+      bearishScore +=
+        1;
+    }
+  }
+
+  if (
+    bullishScore >=
+      2 &&
+    bullishScore >
+      bearishScore
+  ) {
+    return {
+      signal:
+        "bullish",
+
+      bullishScore,
+      bearishScore,
+    };
+  }
+
+  if (
+    bearishScore >=
+      2 &&
+    bearishScore >
+      bullishScore
+  ) {
+    return {
+      signal:
+        "bearish",
+
+      bullishScore,
+      bearishScore,
+    };
+  }
+
+  return {
+    signal:
+      "neutral",
+
+    bullishScore,
+    bearishScore,
+  };
+}
+
+function summarizeBacktestTrades(
+  trades
+) {
+  const usable =
+    Array.isArray(
+      trades
+    )
+      ? trades
+      : [];
+
+  const wins =
+    usable.filter(
+      (trade) =>
+        trade.net_return_pct >
+        0
+    );
+
+  const losses =
+    usable.filter(
+      (trade) =>
+        trade.net_return_pct <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        trade.net_return_pct,
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          trade.net_return_pct,
+        0
+      )
+    );
+
+  let equity =
+    1;
+
+  let peak =
+    1;
+
+  let maxDrawdownPct =
+    0;
+
+  for (const trade of usable) {
+    equity *=
+      1 +
+      trade.net_return_pct /
+        100;
+
+    peak =
+      Math.max(
+        peak,
+        equity
+      );
+
+    const drawdownPct =
+      peak >
+      0
+        ? (
+            equity /
+            peak -
+            1
+          ) *
+          100
+        : 0;
+
+    maxDrawdownPct =
+      Math.min(
+        maxDrawdownPct,
+        drawdownPct
+      );
+  }
+
+  return {
+    trades:
+      usable.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    breakeven:
+      usable.length -
+      wins.length -
+      losses.length,
+
+    win_rate_pct:
+      usable.length
+        ? (
+            wins.length /
+            usable.length
+          ) *
+          100
+        : null,
+
+    average_return_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.net_return_pct
+        )
+      ),
+
+    average_winner_pct:
+      averageNumbers(
+        wins.map(
+          (trade) =>
+            trade.net_return_pct
+        )
+      ),
+
+    average_loser_pct:
+      averageNumbers(
+        losses.map(
+          (trade) =>
+            trade.net_return_pct
+        )
+      ),
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : null,
+
+    compounded_return_pct:
+      (
+        equity -
+        1
+      ) *
+      100,
+
+    max_drawdown_pct:
+      maxDrawdownPct,
+
+    average_mfe_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.mfe_pct
+        )
+      ),
+
+    average_mae_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.mae_pct
+        )
+      ),
+
+    average_hold_sessions:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.hold_sessions
+        )
+      ),
+  };
+}
+
+function buildChronologicalEvaluation(
+  trades
+) {
+  const n =
+    trades.length;
+
+  const trainEnd =
+    Math.max(
+      0,
+      Math.floor(
+        n *
+        0.6
+      )
+    );
+
+  const validationEnd =
+    Math.max(
+      trainEnd,
+      Math.floor(
+        n *
+        0.8
+      )
+    );
+
+  return {
+    train: {
+      summary:
+        summarizeBacktestTrades(
+          trades.slice(
+            0,
+            trainEnd
+          )
+        ),
+    },
+
+    validation: {
+      summary:
+        summarizeBacktestTrades(
+          trades.slice(
+            trainEnd,
+            validationEnd
+          )
+        ),
+    },
+
+    test: {
+      summary:
+        summarizeBacktestTrades(
+          trades.slice(
+            validationEnd
+          )
+        ),
+    },
+  };
+}
+
+function buildBacktestEquityCurve(
+  trades
+) {
+  let equity =
+    1;
+
+  return trades.map(
+    (trade) => {
+      equity *=
+        1 +
+        trade.net_return_pct /
+          100;
+
+      return {
+        time:
+          trade.exit_time,
+
+        equity,
+
+        cumulative_return_pct:
+          (
+            equity -
+            1
+          ) *
+          100,
+      };
+    }
+  );
+}
+
+function runDirectionalBacktest({
+  bars,
+  rsiSeries,
+  macdSeries,
+  requestedStart,
+  holdDays,
+  costBps,
+  nonOverlapping,
+}) {
+  const rsiMap =
+    new Map(
+      rsiSeries.map(
+        (item) => [
+          item.begins_at,
+          finiteNumber(
+            item.value
+          ),
+        ]
+      )
+    );
+
+  const macdMap =
+    new Map(
+      macdSeries.map(
+        (item) => [
+          item.begins_at,
+          finiteNumber(
+            item.histogram
+          ),
+        ]
+      )
+    );
+
+  const trades =
+    [];
+
+  let nextEligibleSignalIndex =
+    0;
+
+  for (
+    let i = 1;
+    i <
+    bars.length -
+      holdDays;
+    i++
+  ) {
+    const signalBar =
+      bars[i];
+
+    if (
+      Date.parse(
+        signalBar.time
+      ) <
+      requestedStart.getTime()
+    ) {
+      continue;
+    }
+
+    if (
+      nonOverlapping &&
+      i <
+      nextEligibleSignalIndex
+    ) {
+      continue;
+    }
+
+    const previousBar =
+      bars[
+        i -
+        1
+      ];
+
+    const rsi =
+      rsiMap.get(
+        signalBar.time
+      ) ??
+      null;
+
+    const macdHistogram =
+      macdMap.get(
+        signalBar.time
+      ) ??
+      null;
+
+    if (
+      rsi ===
+        null ||
+      macdHistogram ===
+        null
+    ) {
+      continue;
+    }
+
+    const changePct =
+      previousBar.close >
+      0
+        ? (
+            (
+              signalBar.close -
+              previousBar.close
+            ) /
+            previousBar.close
+          ) *
+          100
+        : null;
+
+    const momentum =
+      scannerMomentumSignal({
+        rsi,
+        macdHistogram,
+        changePct,
+      });
+
+    if (
+      momentum.signal ===
+      "neutral"
+    ) {
+      continue;
+    }
+
+    const entryIndex =
+      i +
+      1;
+
+    const exitIndex =
+      i +
+      holdDays;
+
+    const entryBar =
+      bars[
+        entryIndex
+      ];
+
+    const exitBar =
+      bars[
+        exitIndex
+      ];
+
+    if (
+      !entryBar ||
+      !exitBar ||
+      entryBar.open <=
+        0
+    ) {
+      continue;
+    }
+
+    const direction =
+      momentum.signal ===
+      "bullish"
+        ? 1
+        : -1;
+
+    const grossReturnPct =
+      direction *
+      (
+        (
+          exitBar.close -
+          entryBar.open
+        ) /
+        entryBar.open
+      ) *
+      100;
+
+    const frictionPct =
+      Math.max(
+        0,
+        costBps
+      ) /
+      100;
+
+    const netReturnPct =
+      grossReturnPct -
+      frictionPct;
+
+    const holdingBars =
+      bars.slice(
+        entryIndex,
+        exitIndex +
+          1
+      );
+
+    const highest =
+      Math.max(
+        ...holdingBars.map(
+          (bar) =>
+            bar.high
+        )
+      );
+
+    const lowest =
+      Math.min(
+        ...holdingBars.map(
+          (bar) =>
+            bar.low
+        )
+      );
+
+    const mfePct =
+      direction >
+      0
+        ? (
+            (
+              highest -
+              entryBar.open
+            ) /
+            entryBar.open
+          ) *
+          100
+        : (
+            (
+              entryBar.open -
+              lowest
+            ) /
+            entryBar.open
+          ) *
+          100;
+
+    const maePct =
+      direction >
+      0
+        ? (
+            (
+              lowest -
+              entryBar.open
+            ) /
+            entryBar.open
+          ) *
+          100
+        : (
+            (
+              entryBar.open -
+              highest
+            ) /
+            entryBar.open
+          ) *
+          100;
+
+    trades.push({
+      id:
+        signalBar.time +
+        "|" +
+        momentum.signal,
+
+      signal:
+        momentum.signal,
+
+      signal_time:
+        signalBar.time,
+
+      entry_time:
+        entryBar.time,
+
+      exit_time:
+        exitBar.time,
+
+      hold_sessions:
+        holdDays,
+
+      signal_close:
+        signalBar.close,
+
+      entry_open:
+        entryBar.open,
+
+      exit_close:
+        exitBar.close,
+
+      rsi,
+
+      macd_histogram:
+        macdHistogram,
+
+      signal_change_pct:
+        changePct,
+
+      bullish_score:
+        momentum.bullishScore,
+
+      bearish_score:
+        momentum.bearishScore,
+
+      gross_return_pct:
+        grossReturnPct,
+
+      friction_pct:
+        frictionPct,
+
+      net_return_pct:
+        netReturnPct,
+
+      mfe_pct:
+        mfePct,
+
+      mae_pct:
+        maePct,
+
+      favorable:
+        netReturnPct >
+        0,
+    });
+
+    if (
+      nonOverlapping
+    ) {
+      nextEligibleSignalIndex =
+        exitIndex;
+    }
+  }
+
+  return trades;
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -2202,6 +3053,333 @@ app.get(
               error
             ),
         });
+    }
+  }
+);
+
+
+app.post(
+  "/scanner/backtest",
+
+  async (req, res) => {
+    try {
+      const symbol =
+        normalizeTicker(
+          req.body
+            ?.symbol
+        );
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          60,
+          3650,
+          365
+        );
+
+      const holdDays =
+        clampNumber(
+          req.body
+            ?.holdDays,
+          1,
+          30,
+          5
+        );
+
+      const costBps =
+        Math.max(
+          0,
+          Math.min(
+            500,
+            Number(
+              req.body
+                ?.costBps ??
+              0
+            ) ||
+            0
+          )
+        );
+
+      const nonOverlapping =
+        req.body
+          ?.nonOverlapping !==
+        false;
+
+      const end =
+        new Date();
+
+      const requestedStart =
+        new Date(
+          end.getTime() -
+          lookbackDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const fetchStart =
+        new Date(
+          requestedStart.getTime() -
+          120 *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const common = {
+        start_time:
+          fetchStart.toISOString(),
+
+        end_time:
+          end.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+
+        adjustment_type:
+          "split",
+      };
+
+      const [
+        historicalResult,
+        rsiResult,
+        macdResult,
+      ] =
+        await Promise.all([
+          callRobinhoodTool(
+            "get_equity_historicals",
+            {
+              symbols: [
+                symbol,
+              ],
+
+              ...common,
+            }
+          ),
+
+          callRobinhoodTool(
+            "get_equity_technical_indicators",
+            {
+              symbol,
+
+              type:
+                "rsi",
+
+              ...common,
+
+              output:
+                "series",
+
+              period:
+                14,
+            }
+          ),
+
+          callRobinhoodTool(
+            "get_equity_technical_indicators",
+            {
+              symbol,
+
+              type:
+                "macd",
+
+              ...common,
+
+              output:
+                "series",
+
+              fast_period:
+                12,
+
+              slow_period:
+                26,
+
+              signal_period:
+                9,
+            }
+          ),
+        ]);
+
+      const historicalPayload =
+        unwrapRobinhoodToolResult(
+          historicalResult
+        );
+
+      const rsiPayload =
+        unwrapRobinhoodToolResult(
+          rsiResult
+        );
+
+      const macdPayload =
+        unwrapRobinhoodToolResult(
+          macdResult
+        );
+
+      const bars =
+        extractBacktestBars(
+          historicalPayload
+        );
+
+      const rsiSeries =
+        extractBacktestIndicator(
+          rsiPayload,
+          "rsi"
+        );
+
+      const macdSeries =
+        extractBacktestIndicator(
+          macdPayload,
+          "macd"
+        );
+
+      if (
+        bars.length <
+        holdDays +
+          3
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Not enough historical bars were returned for this backtest.",
+          });
+      }
+
+      const trades =
+        runDirectionalBacktest({
+          bars,
+          rsiSeries,
+          macdSeries,
+          requestedStart,
+          holdDays,
+          costBps,
+          nonOverlapping,
+        });
+
+      const summary =
+        summarizeBacktestTrades(
+          trades
+        );
+
+      const chronological =
+        buildChronologicalEvaluation(
+          trades
+        );
+
+      const bullishTrades =
+        trades.filter(
+          (trade) =>
+            trade.signal ===
+            "bullish"
+        );
+
+      const bearishTrades =
+        trades.filter(
+          (trade) =>
+            trade.signal ===
+            "bearish"
+        );
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        symbol,
+
+        engine:
+          "scanner_directional_proxy_v1",
+
+        methodology: {
+          signal_rule:
+            "Same scanner momentum score: RSI >=55 / <=45, MACD histogram sign, and daily price direction. Two of three aligned signals are required.",
+
+          execution:
+            "Signal is evaluated at a completed daily close. Entry uses the next regular-session open. Exit uses the close after the selected number of trading sessions.",
+
+          instrument:
+            "Underlying stock directional return proxy. This is not an historical options-spread P/L reconstruction.",
+
+          friction:
+            costBps.toFixed(
+              1
+            ) +
+            " bps round-trip return deduction per simulated trade.",
+
+          overlap:
+            nonOverlapping
+              ? "Same-symbol trades do not overlap."
+              : "Signals may overlap.",
+        },
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          hold_sessions:
+            holdDays,
+
+          cost_bps:
+            costBps,
+
+          non_overlapping:
+            nonOverlapping,
+        },
+
+        data: {
+          fetched_bar_count:
+            bars.length,
+
+          first_bar:
+            bars[0]?.time ??
+            null,
+
+          last_bar:
+            bars[
+              bars.length -
+              1
+            ]?.time ??
+            null,
+
+          requested_start:
+            requestedStart.toISOString(),
+        },
+
+        summary,
+
+        by_direction: {
+          bullish:
+            summarizeBacktestTrades(
+              bullishTrades
+            ),
+
+          bearish:
+            summarizeBacktestTrades(
+              bearishTrades
+            ),
+        },
+
+        chronological_evaluation:
+          chronological,
+
+        equity_curve:
+          buildBacktestEquityCurve(
+            trades
+          ),
+
+        trades,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
     }
   }
 );
