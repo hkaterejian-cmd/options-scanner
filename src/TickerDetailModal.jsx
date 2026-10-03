@@ -5096,15 +5096,758 @@ function StrategyPanel({
   );
 }
 
+function SavedStrategyPlansPanel({
+  ticker,
+  expiration,
+  optionType,
+  longContract,
+  shortContract,
+  economics,
+  spot,
+  marketContext,
+  fullChainAnalysis,
+  contracts,
+  onLoadPlan,
+}) {
+  const STORAGE_KEY =
+    "optionsScannerSavedStrategyPlansV1";
+
+  const [
+    savedPlans,
+    setSavedPlans,
+  ] = useState(() => {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return [];
+    }
+
+    try {
+      const raw =
+        window.localStorage.getItem(
+          STORAGE_KEY
+        );
+
+      if (!raw) {
+        return [];
+      }
+
+      const parsed =
+        JSON.parse(raw);
+
+      return Array.isArray(
+        parsed
+      )
+        ? parsed
+        : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [
+    notes,
+    setNotes,
+  ] = useState("");
+
+  const [
+    invalidationPrice,
+    setInvalidationPrice,
+  ] = useState("");
+
+  const currentStructureKey =
+    longContract &&
+    shortContract
+      ? `${ticker}|${expiration}|${optionType}|${longContract.strike}|${shortContract.strike}`
+      : "";
+
+  const existingPlan =
+    currentStructureKey
+      ? savedPlans.find(
+          (plan) =>
+            plan.structureKey ===
+            currentStructureKey
+        ) ??
+        null
+      : null;
+
+  useEffect(() => {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(
+          savedPlans
+        )
+      );
+    } catch {
+      // Storage can fail in restrictive browser modes.
+    }
+  }, [
+    savedPlans,
+  ]);
+
+  useEffect(() => {
+    setNotes(
+      existingPlan?.notes ??
+      ""
+    );
+
+    setInvalidationPrice(
+      existingPlan?.invalidationPrice ??
+      ""
+    );
+  }, [
+    currentStructureKey,
+    existingPlan?.id,
+  ]);
+
+  const plansForTicker =
+    useMemo(
+      () =>
+        savedPlans
+          .filter(
+            (plan) =>
+              plan.ticker ===
+              ticker
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                b.updatedAt ||
+                b.savedAt ||
+                0
+              ).getTime() -
+              new Date(
+                a.updatedAt ||
+                a.savedAt ||
+                0
+              ).getTime()
+          ),
+      [
+        savedPlans,
+        ticker,
+      ]
+    );
+
+  function saveCurrentPlan() {
+    if (
+      !longContract ||
+      !shortContract ||
+      !economics
+    ) {
+      return;
+    }
+
+    const now =
+      new Date().toISOString();
+
+    const plan = {
+      id:
+        existingPlan?.id ??
+        (
+          typeof crypto !==
+            "undefined" &&
+          typeof crypto.randomUUID ===
+            "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}-${ticker}`
+        ),
+
+      structureKey:
+        currentStructureKey,
+
+      ticker,
+      expiration,
+      optionType,
+
+      longStrike:
+        longContract.strike,
+
+      shortStrike:
+        shortContract.strike,
+
+      savedAt:
+        existingPlan?.savedAt ??
+        now,
+
+      updatedAt:
+        now,
+
+      savedSpot:
+        toNumber(
+          spot
+        ),
+
+      savedEntryDebit:
+        economics.entryDebit,
+
+      savedMidpointDebit:
+        economics.midpointDebit,
+
+      width:
+        economics.width,
+
+      maxLoss:
+        economics.maxLoss,
+
+      maxProfit:
+        economics.maxProfit,
+
+      breakeven:
+        economics.breakeven,
+
+      rewardRisk:
+        economics.rewardRisk,
+
+      netDelta:
+        economics.netDelta,
+
+      netGamma:
+        economics.netGamma,
+
+      netTheta:
+        economics.netTheta,
+
+      netVega:
+        economics.netVega,
+
+      savedRsi:
+        toNumber(
+          marketContext?.rsi
+        ),
+
+      savedMacdHistogram:
+        toNumber(
+          marketContext
+            ?.macd
+            ?.histogram
+        ),
+
+      callOIWall:
+        fullChainAnalysis
+          ?.callOIWall
+          ?.strike ??
+        null,
+
+      putOIWall:
+        fullChainAnalysis
+          ?.putOIWall
+          ?.strike ??
+        null,
+
+      gammaConcentration:
+        fullChainAnalysis
+          ?.gammaConcentration
+          ?.strike ??
+        null,
+
+      notes:
+        notes.trim(),
+
+      invalidationPrice:
+        toNumber(
+          invalidationPrice
+        ),
+    };
+
+    setSavedPlans(
+      (current) => {
+        const index =
+          current.findIndex(
+            (item) =>
+              item.structureKey ===
+              currentStructureKey
+          );
+
+        if (
+          index === -1
+        ) {
+          return [
+            plan,
+            ...current,
+          ];
+        }
+
+        const next = [
+          ...current,
+        ];
+
+        next[index] =
+          plan;
+
+        return next;
+      }
+    );
+  }
+
+  function deletePlan(id) {
+    setSavedPlans(
+      (current) =>
+        current.filter(
+          (plan) =>
+            plan.id !==
+            id
+        )
+    );
+  }
+
+  function currentEconomicsForPlan(
+    plan
+  ) {
+    if (
+      plan.expiration !==
+      expiration
+    ) {
+      return null;
+    }
+
+    const currentLong =
+      contracts.find(
+        (contract) =>
+          contract.type ===
+            plan.optionType &&
+          contract.strike ===
+            Number(
+              plan.longStrike
+            )
+      );
+
+    const currentShort =
+      contracts.find(
+        (contract) =>
+          contract.type ===
+            plan.optionType &&
+          contract.strike ===
+            Number(
+              plan.shortStrike
+            )
+      );
+
+    if (
+      !currentLong ||
+      !currentShort
+    ) {
+      return null;
+    }
+
+    const strategy = {
+      name:
+        "Saved plan refresh",
+
+      bias:
+        plan.optionType ===
+        "call"
+          ? "Bullish"
+          : "Bearish",
+
+      legs: [
+        {
+          action:
+            `Long ${plan.optionType}`,
+
+          side:
+            "long",
+
+          contract:
+            currentLong,
+        },
+
+        {
+          action:
+            `Short ${plan.optionType}`,
+
+          side:
+            "short",
+
+          contract:
+            currentShort,
+        },
+      ],
+    };
+
+    return calculateSpreadEconomics(
+      strategy
+    );
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-emerald-400">
+            Saved strategy plans
+          </div>
+
+          <div className="mt-1 text-sm font-bold">
+            Save this setup for later
+          </div>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            Plans are stored in this browser and remain after closing the modal or refreshing the screener.
+          </div>
+        </div>
+
+        <div className="rounded border border-emerald-500/20 px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300">
+          {plansForTicker.length} saved for {ticker}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_220px]">
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+          <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+            Notes / thesis
+          </div>
+
+          <textarea
+            value={
+              notes
+            }
+            onChange={(
+              event
+            ) =>
+              setNotes(
+                event.target.value
+              )
+            }
+            rows="3"
+            placeholder="Example: Watching the $190 gamma concentration and the $200 call OI wall."
+            className="mt-2 w-full resize-y rounded border border-zinc-800 bg-zinc-950 p-2 text-[11px] text-zinc-200 outline-none focus:border-emerald-500/40"
+          />
+        </label>
+
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+          <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+            Invalidation price
+          </div>
+
+          <input
+            type="number"
+            step="0.01"
+            value={
+              invalidationPrice
+            }
+            onChange={(
+              event
+            ) =>
+              setInvalidationPrice(
+                event.target.value
+              )
+            }
+            placeholder="Optional"
+            className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+          />
+
+          <div className="mt-2 text-[9px] text-zinc-600">
+            Optional reference level only.
+          </div>
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={
+            saveCurrentPlan
+          }
+          disabled={
+            !economics
+          }
+          className={`rounded border px-4 py-2 text-[10px] font-bold ${
+            economics
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300 hover:border-emerald-300"
+              : "cursor-not-allowed border-zinc-800 text-zinc-700"
+          }`}
+        >
+          {existingPlan
+            ? "UPDATE SAVED PLAN"
+            : "SAVE CURRENT PLAN"}
+        </button>
+
+        {existingPlan && (
+          <div className="text-[9px] text-zinc-500">
+            This exact structure already has a saved plan. Saving updates its snapshot and notes.
+          </div>
+        )}
+      </div>
+
+      {plansForTicker.length >
+      0 ? (
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Saved {ticker} plans
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-2">
+            {plansForTicker.map(
+              (plan) => {
+                const currentEconomics =
+                  currentEconomicsForPlan(
+                    plan
+                  );
+
+                const sameExpiration =
+                  plan.expiration ===
+                  expiration;
+
+                const currentMidpoint =
+                  currentEconomics
+                    ?.midpointDebit ??
+                  null;
+
+                const currentRsi =
+                  toNumber(
+                    marketContext?.rsi
+                  );
+
+                const currentMacd =
+                  toNumber(
+                    marketContext
+                      ?.macd
+                      ?.histogram
+                  );
+
+                return (
+                  <div
+                    key={
+                      plan.id
+                    }
+                    className="rounded-xl border border-zinc-800 bg-black/25 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div
+                          className={`text-[9px] uppercase tracking-widest ${
+                            plan.optionType ===
+                            "call"
+                              ? "text-emerald-400"
+                              : "text-red-400"
+                          }`}
+                        >
+                          {plan.optionType} spread · {dateLabel(
+                            plan.expiration
+                          )}
+                        </div>
+
+                        <div className="mt-1 font-mono text-base font-bold text-white">
+                          {money(
+                            plan.longStrike
+                          )}
+                          {" / "}
+                          {money(
+                            plan.shortStrike
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-600">
+                          Updated{" "}
+                          {new Date(
+                            plan.updatedAt ||
+                            plan.savedAt
+                          ).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onLoadPlan(
+                              plan
+                            )
+                          }
+                          className="rounded border border-zinc-700 px-2 py-1 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-emerald-400/40 hover:text-emerald-300"
+                        >
+                          Load
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deletePlan(
+                              plan.id
+                            )
+                          }
+                          className="rounded border border-zinc-800 px-2 py-1 text-[9px] uppercase tracking-widest text-zinc-600 hover:border-red-400/40 hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <MetricBox
+                        label="Saved Spot"
+                        value={money(
+                          plan.savedSpot
+                        )}
+                        subtext={`Current ${money(
+                          spot
+                        )}`}
+                      />
+
+                      <MetricBox
+                        label="Saved Debit"
+                        value={money(
+                          plan.savedEntryDebit
+                        )}
+                        subtext={
+                          sameExpiration
+                            ? `Current midpoint ${money(
+                                currentMidpoint
+                              )}`
+                            : "Load this expiration to refresh quotes"
+                        }
+                      />
+
+                      <MetricBox
+                        label="Breakeven"
+                        value={money(
+                          plan.breakeven
+                        )}
+                        subtext={distanceText(
+                          plan.breakeven,
+                          spot
+                        )}
+                      />
+
+                      <MetricBox
+                        label="Max Loss / Profit"
+                        value={`${dollar(
+                          plan.maxLoss
+                        )} / ${dollar(
+                          plan.maxProfit
+                        )}`}
+                      />
+
+                      <MetricBox
+                        label="Saved RSI"
+                        value={
+                          plan.savedRsi !==
+                          null &&
+                          plan.savedRsi !==
+                          undefined
+                            ? Number(
+                                plan.savedRsi
+                              ).toFixed(
+                                1
+                              )
+                            : "—"
+                        }
+                        subtext={
+                          currentRsi !==
+                          null
+                            ? `Current ${currentRsi.toFixed(
+                                1
+                              )}`
+                            : "Current —"
+                        }
+                      />
+
+                      <MetricBox
+                        label="Saved MACD Hist"
+                        value={signed(
+                          plan.savedMacdHistogram
+                        )}
+                        subtext={
+                          currentMacd !==
+                          null
+                            ? `Current ${signed(
+                                currentMacd
+                              )}`
+                            : "Current —"
+                        }
+                      />
+
+                      <MetricBox
+                        label="Saved OI Walls"
+                        value={`${money(
+                          plan.putOIWall
+                        )} / ${money(
+                          plan.callOIWall
+                        )}`}
+                        subtext="Put / Call"
+                      />
+
+                      <MetricBox
+                        label="Saved Gamma Level"
+                        value={money(
+                          plan.gammaConcentration
+                        )}
+                      />
+                    </div>
+
+                    {(plan.notes ||
+                      plan.invalidationPrice !==
+                        null) && (
+                      <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+                        {plan.notes && (
+                          <>
+                            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                              Notes
+                            </div>
+
+                            <div className="mt-1 whitespace-pre-wrap text-[10px] leading-relaxed text-zinc-300">
+                              {plan.notes}
+                            </div>
+                          </>
+                        )}
+
+                        {plan.invalidationPrice !==
+                          null && (
+                          <div className={plan.notes ? "mt-3" : ""}>
+                            <span className="text-[9px] uppercase tracking-widest text-amber-500">
+                              Invalidation{" "}
+                            </span>
+
+                            <span className="font-mono text-[10px] text-amber-300">
+                              {money(
+                                plan.invalidationPrice
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-zinc-800 bg-black/20 p-4 text-center text-[10px] text-zinc-600">
+          No saved plans for {ticker} yet.
+        </div>
+      )}
+
+      <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+        Saved plans are snapshots. Market prices, Greeks, volume, open interest, RSI, and MACD can change after a plan is saved.
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================
    NEW — MANUAL STRATEGY BUILDER
 ========================================================= */
 
 function ManualStrategyBuilder({
+  ticker,
   contracts,
   expiration,
   spot,
   loading,
+  marketContext,
+  fullChainAnalysis,
+  onSelectExpiration,
 }) {
   const [
     optionType,
@@ -5125,6 +5868,11 @@ function ManualStrategyBuilder({
     savedSpreads,
     setSavedSpreads,
   ] = useState([]);
+
+  const [
+    pendingPlan,
+    setPendingPlan,
+  ] = useState(null);
 
   const [
     comparisonPrice,
@@ -5408,6 +6156,84 @@ function ManualStrategyBuilder({
           manualStrategy
         )
       : null;
+
+  function loadSavedPlan(
+    plan
+  ) {
+    if (!plan) {
+      return;
+    }
+
+    setOptionType(
+      plan.optionType
+    );
+
+    if (
+      plan.expiration !==
+      expiration
+    ) {
+      setPendingPlan(
+        plan
+      );
+
+      if (
+        onSelectExpiration
+      ) {
+        onSelectExpiration(
+          plan.expiration
+        );
+      }
+
+      return;
+    }
+
+    setLongStrike(
+      Number(
+        plan.longStrike
+      )
+    );
+
+    setShortStrike(
+      Number(
+        plan.shortStrike
+      )
+    );
+  }
+
+  useEffect(() => {
+    if (
+      !pendingPlan ||
+      pendingPlan.expiration !==
+        expiration ||
+      !contracts.length
+    ) {
+      return;
+    }
+
+    setOptionType(
+      pendingPlan.optionType
+    );
+
+    setLongStrike(
+      Number(
+        pendingPlan.longStrike
+      )
+    );
+
+    setShortStrike(
+      Number(
+        pendingPlan.shortStrike
+      )
+    );
+
+    setPendingPlan(
+      null
+    );
+  }, [
+    pendingPlan,
+    expiration,
+    contracts,
+  ]);
 
   const comparisonKey =
     longContract &&
@@ -6445,6 +7271,42 @@ function ManualStrategyBuilder({
             )}
           </div>
 
+          <SavedStrategyPlansPanel
+            ticker={
+              ticker
+            }
+            expiration={
+              expiration
+            }
+            optionType={
+              optionType
+            }
+            longContract={
+              longContract
+            }
+            shortContract={
+              shortContract
+            }
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
+            marketContext={
+              marketContext
+            }
+            fullChainAnalysis={
+              fullChainAnalysis
+            }
+            contracts={
+              contracts
+            }
+            onLoadPlan={
+              loadSavedPlan
+            }
+          />
+
           <div className="mt-5 border-t border-fuchsia-500/20 pt-4">
             <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
               Manual spread analysis
@@ -7273,6 +8135,9 @@ export default function TickerDetailModal({
                 {/* NEW MANUAL STRATEGY BUILDER */}
 
                 <ManualStrategyBuilder
+                  ticker={
+                    data.ticker
+                  }
                   contracts={
                     fullChainContracts
                   }
@@ -7284,6 +8149,15 @@ export default function TickerDetailModal({
                   }
                   loading={
                     fullChainLoading
+                  }
+                  marketContext={
+                    data
+                  }
+                  fullChainAnalysis={
+                    fullChainAnalysis
+                  }
+                  onSelectExpiration={
+                    setExpiration
                   }
                 />
 
