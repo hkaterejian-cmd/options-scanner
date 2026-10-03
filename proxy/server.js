@@ -507,6 +507,8 @@ function defaultScannerState() {
 
     savedComparisons: {},
 
+    paperTrades: [],
+
     preferences: {
       autoRefresh: {
         enabled: false,
@@ -561,6 +563,21 @@ function normalizeStoredState(input) {
       ? value.savedComparisons
       : {};
 
+  const paperTrades =
+    Array.isArray(
+      value.paperTrades
+    )
+      ? value.paperTrades.filter(
+          (trade) =>
+            trade &&
+            typeof trade ===
+              "object" &&
+            !Array.isArray(
+              trade
+            )
+        )
+      : [];
+
   const autoRefreshSeconds =
     Number(
       value.preferences
@@ -581,6 +598,8 @@ function normalizeStoredState(input) {
     savedPlans,
 
     savedComparisons,
+
+    paperTrades,
 
     preferences: {
       autoRefresh: {
@@ -785,6 +804,93 @@ function mergeSavedPlans(
   ];
 }
 
+function mergePaperTrades(
+  existing,
+  incoming
+) {
+  const map =
+    new Map();
+
+  for (
+    const trade of [
+      ...(Array.isArray(
+        existing
+      )
+        ? existing
+        : []),
+
+      ...(Array.isArray(
+        incoming
+      )
+        ? incoming
+        : []),
+    ]
+  ) {
+    if (
+      !trade ||
+      typeof trade !==
+        "object"
+    ) {
+      continue;
+    }
+
+    const key =
+      trade.id ||
+      [
+        trade.ticker,
+        trade.expiration,
+        trade.optionType,
+        trade.longStrike,
+        trade.shortStrike,
+        trade.openedAt,
+      ].join("|");
+
+    const previous =
+      map.get(
+        key
+      );
+
+    if (!previous) {
+      map.set(
+        key,
+        trade
+      );
+
+      continue;
+    }
+
+    const previousTime =
+      Date.parse(
+        previous.updatedAt ||
+        previous.closedAt ||
+        previous.openedAt ||
+        0
+      ) || 0;
+
+    const nextTime =
+      Date.parse(
+        trade.updatedAt ||
+        trade.closedAt ||
+        trade.openedAt ||
+        0
+      ) || 0;
+
+    if (
+      nextTime >=
+      previousTime
+    ) {
+      map.set(
+        key,
+        trade
+      );
+    }
+  }
+
+  return [
+    ...map.values(),
+  ];
+}
+
 /*
   =========================================================
   SCANNER STATE API
@@ -937,6 +1043,16 @@ app.get(
             state.savedComparisons ||
             {}
           ).length,
+
+        paper_trade_count:
+          state.paperTrades.length,
+
+        open_paper_trade_count:
+          state.paperTrades.filter(
+            (trade) =>
+              trade.status ===
+              "open"
+          ).length,
       },
 
       preferences: {
@@ -993,6 +1109,12 @@ app.post(
               : {}
           ),
         },
+
+        paperTrades:
+          mergePaperTrades(
+            current.paperTrades,
+            incoming.paperTrades
+          ),
 
         preferences: {
           autoRefresh: {
@@ -1111,6 +1233,43 @@ app.put(
         await writeScannerState({
           ...current,
           savedComparisons,
+        })
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/state/paper-trades",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const paperTrades =
+        Array.isArray(
+          req.body
+            ?.paperTrades
+        )
+          ? req.body
+              .paperTrades
+          : [];
+
+      return res.json(
+        await writeScannerState({
+          ...current,
+          paperTrades,
         })
       );
 
