@@ -24,6 +24,7 @@ const DEFAULT_TICKERS = [
 const STORAGE_KEY = "options-scanner-tickers-robinhood-v2";
 const SAVED_PLANS_STORAGE_KEY = "optionsScannerSavedStrategyPlansV1";
 const AUTO_REFRESH_STORAGE_KEY = "optionsScannerAutoRefreshV1";
+const NOTIFICATION_STORAGE_KEY = "optionsScannerNotificationsV1";
 
 /*
   =========================================================
@@ -2621,6 +2622,49 @@ export default function OptionsScanner() {
   ] =
     useState(0);
 
+  const [
+    notificationsEnabled,
+    setNotificationsEnabled,
+  ] =
+    useState(() => {
+      try {
+        const raw =
+          window.localStorage.getItem(
+            NOTIFICATION_STORAGE_KEY
+          );
+
+        const parsed =
+          raw
+            ? JSON.parse(
+                raw
+              )
+            : null;
+
+        return !!parsed?.enabled;
+      } catch {
+        return false;
+      }
+    });
+
+  const [
+    notificationPermission,
+    setNotificationPermission,
+  ] =
+    useState(() => {
+      if (
+        typeof window ===
+          "undefined" ||
+        !(
+          "Notification" in
+          window
+        )
+      ) {
+        return "unsupported";
+      }
+
+      return window.Notification.permission;
+    });
+
   const scanInProgressRef =
     useRef(false);
 
@@ -2648,10 +2692,10 @@ export default function OptionsScanner() {
       ]
     );
 
-  const activeConditionKeys =
+  const activeConditionEntries =
     useMemo(
       () => {
-        const keys = [];
+        const entries = [];
 
         for (
           const plan of savedPlans
@@ -2674,17 +2718,48 @@ export default function OptionsScanner() {
           for (
             const condition of conditions
           ) {
-            keys.push(
-              `${plan.id || plan.structureKey}|${condition.label}`
-            );
+            entries.push({
+              key:
+                `${plan.id || plan.structureKey}|${condition.label}`,
+
+              ticker:
+                normalizeTicker(
+                  plan?.ticker
+                ),
+
+              label:
+                condition.label,
+
+              tone:
+                condition.tone,
+
+              plan,
+            });
           }
         }
 
-        return keys.sort();
+        return entries.sort(
+          (a, b) =>
+            a.key.localeCompare(
+              b.key
+            )
+        );
       },
       [
         savedPlans,
         tickerData,
+      ]
+    );
+
+  const activeConditionKeys =
+    useMemo(
+      () =>
+        activeConditionEntries.map(
+          (entry) =>
+            entry.key
+        ),
+      [
+        activeConditionEntries,
       ]
     );
 
@@ -2809,6 +2884,37 @@ export default function OptionsScanner() {
   ]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        NOTIFICATION_STORAGE_KEY,
+        JSON.stringify({
+          enabled:
+            notificationsEnabled,
+        })
+      );
+    } catch {
+      // Ignore restrictive browser storage modes.
+    }
+  }, [
+    notificationsEnabled,
+  ]);
+
+  useEffect(() => {
+    if (
+      notificationPermission !==
+        "granted" &&
+      notificationsEnabled
+    ) {
+      setNotificationsEnabled(
+        false
+      );
+    }
+  }, [
+    notificationPermission,
+    notificationsEnabled,
+  ]);
+
+  useEffect(() => {
     const previous =
       previousConditionKeysRef.current;
 
@@ -2826,32 +2932,85 @@ export default function OptionsScanner() {
       return;
     }
 
-    let added = 0;
+    const addedEntries =
+      activeConditionEntries.filter(
+        (entry) =>
+          !previous.has(
+            entry.key
+          )
+      );
 
-    for (
-      const key of currentSet
+    if (
+      addedEntries.length >
+      0
     ) {
-      if (
-        !previous.has(
-          key
-        )
-      ) {
-        added += 1;
-      }
-    }
-
-    if (added > 0) {
       setNewConditionCount(
         (current) =>
           current +
-          added
+          addedEntries.length
       );
+
+      if (
+        notificationsEnabled &&
+        notificationPermission ===
+          "granted" &&
+        typeof window !==
+          "undefined" &&
+        "Notification" in
+          window
+      ) {
+        for (
+          const entry of addedEntries
+        ) {
+          try {
+            const notification =
+              new window.Notification(
+                `${entry.ticker} saved-plan condition`,
+                {
+                  body:
+                    entry.label,
+
+                  tag:
+                    `options-scanner-${entry.key}`,
+                }
+              );
+
+            notification.onclick =
+              () => {
+                window.focus();
+
+                const liveTicker =
+                  tickerData.find(
+                    (item) =>
+                      item.ticker ===
+                      entry.ticker
+                  );
+
+                if (
+                  liveTicker
+                ) {
+                  setSelected(
+                    liveTicker
+                  );
+                }
+
+                notification.close();
+              };
+          } catch {
+            // Browser can reject notifications in restricted environments.
+          }
+        }
+      }
     }
 
     previousConditionKeysRef.current =
       currentSet;
   }, [
     activeConditionKeys,
+    activeConditionEntries,
+    notificationsEnabled,
+    notificationPermission,
+    tickerData,
   ]);
 
   /*
@@ -3106,6 +3265,63 @@ export default function OptionsScanner() {
     tickers,
     scan,
   ]);
+
+  const toggleNotifications =
+    async () => {
+      if (
+        typeof window ===
+          "undefined" ||
+        !(
+          "Notification" in
+          window
+        )
+      ) {
+        setNotificationPermission(
+          "unsupported"
+        );
+
+        setNotificationsEnabled(
+          false
+        );
+
+        return;
+      }
+
+      if (
+        notificationsEnabled
+      ) {
+        setNotificationsEnabled(
+          false
+        );
+
+        return;
+      }
+
+      let permission =
+        window.Notification.permission;
+
+      if (
+        permission ===
+        "default"
+      ) {
+        try {
+          permission =
+            await window.Notification.requestPermission();
+        } catch {
+          permission =
+            window.Notification.permission;
+        }
+      }
+
+      setNotificationPermission(
+        permission
+      );
+
+      setNotificationsEnabled(
+        permission ===
+          "granted"
+      );
+    };
 
   /*
     =======================================================
@@ -3433,6 +3649,48 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={
+                toggleNotifications
+              }
+              disabled={
+                notificationPermission ===
+                "unsupported"
+              }
+              title={
+                notificationPermission ===
+                "denied"
+                  ? "Browser notifications are blocked for this site. Change the site notification permission in your browser settings."
+                  : notificationPermission ===
+                      "unsupported"
+                    ? "Browser notifications are not supported in this environment."
+                    : notificationsEnabled
+                      ? "Turn browser notifications off."
+                      : "Enable browser notifications for newly triggered saved-plan conditions."
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-mono disabled:cursor-not-allowed disabled:opacity-30 ${
+                notificationsEnabled &&
+                notificationPermission ===
+                  "granted"
+                  ? "border-sky-500/40 bg-sky-500/10 text-sky-300"
+                  : notificationPermission ===
+                      "denied"
+                    ? "border-red-500/30 bg-red-500/10 text-red-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+              }`}
+            >
+              {notificationPermission ===
+              "denied"
+                ? "Notifications Blocked"
+                : notificationPermission ===
+                    "unsupported"
+                  ? "Notifications N/A"
+                  : notificationsEnabled
+                    ? "● Notifications"
+                    : "○ Notifications"}
+            </button>
+
+            <button
               onClick={
                 runSummary
               }
@@ -3508,6 +3766,29 @@ Do not invent missing values.`
               {autoRefreshEnabled
                 ? `${autoRefreshSeconds}s`
                 : "OFF"}
+            </span>
+
+            <span
+              className={
+                notificationsEnabled &&
+                notificationPermission ===
+                  "granted"
+                  ? "text-sky-400"
+                  : notificationPermission ===
+                      "denied"
+                    ? "text-red-400"
+                    : "text-zinc-600"
+              }
+            >
+              Notifications{" "}
+              {notificationPermission ===
+              "denied"
+                ? "BLOCKED"
+                : notificationsEnabled &&
+                    notificationPermission ===
+                      "granted"
+                  ? "ON"
+                  : "OFF"}
             </span>
           </div>
         </div>
@@ -3662,6 +3943,10 @@ Do not invent missing values.`
               {formatDataAge(
                 dataAgeSeconds
               )}
+            </div>
+
+            <div className="text-[9px] text-zinc-600">
+              Desktop notifications fire only for newly triggered saved-plan conditions while the screener page is running.
             </div>
           </div>
         </div>
