@@ -1232,10 +1232,13 @@ function extractBacktestIndicator(
     );
 }
 
-function scannerMomentumSignal({
+function configurableMomentumSignal({
   rsi,
   macdHistogram,
   changePct,
+  bullishRsi = 55,
+  bearishRsi = 45,
+  requiredSignals = 2,
 }) {
   let bullishScore =
     0;
@@ -1249,7 +1252,7 @@ function scannerMomentumSignal({
   ) {
     if (
       rsi >=
-      55
+      bullishRsi
     ) {
       bullishScore +=
         1;
@@ -1257,7 +1260,7 @@ function scannerMomentumSignal({
 
     if (
       rsi <=
-      45
+      bearishRsi
     ) {
       bearishScore +=
         1;
@@ -1308,7 +1311,7 @@ function scannerMomentumSignal({
 
   if (
     bullishScore >=
-      2 &&
+      requiredSignals &&
     bullishScore >
       bearishScore
   ) {
@@ -1323,7 +1326,7 @@ function scannerMomentumSignal({
 
   if (
     bearishScore >=
-      2 &&
+      requiredSignals &&
     bearishScore >
       bullishScore
   ) {
@@ -1343,6 +1346,24 @@ function scannerMomentumSignal({
     bullishScore,
     bearishScore,
   };
+}
+
+function scannerMomentumSignal({
+  rsi,
+  macdHistogram,
+  changePct,
+}) {
+  return configurableMomentumSignal({
+    rsi,
+    macdHistogram,
+    changePct,
+    bullishRsi:
+      55,
+    bearishRsi:
+      45,
+    requiredSignals:
+      2,
+  });
 }
 
 function summarizeBacktestTrades(
@@ -1617,6 +1638,11 @@ function runDirectionalBacktest({
   holdDays,
   costBps,
   nonOverlapping,
+  directionMode = "both",
+  bullishRsi = 55,
+  bearishRsi = 45,
+  requiredSignals = 2,
+  symbol = null,
 }) {
   const rsiMap =
     new Map(
@@ -1716,15 +1742,36 @@ function runDirectionalBacktest({
         : null;
 
     const momentum =
-      scannerMomentumSignal({
+      configurableMomentumSignal({
         rsi,
         macdHistogram,
         changePct,
+        bullishRsi,
+        bearishRsi,
+        requiredSignals,
       });
 
     if (
       momentum.signal ===
       "neutral"
+    ) {
+      continue;
+    }
+
+    if (
+      directionMode ===
+        "bullish_only" &&
+      momentum.signal !==
+        "bullish"
+    ) {
+      continue;
+    }
+
+    if (
+      directionMode ===
+        "bearish_only" &&
+      momentum.signal !==
+        "bearish"
     ) {
       continue;
     }
@@ -1849,9 +1896,29 @@ function runDirectionalBacktest({
 
     trades.push({
       id:
+        (
+          symbol ||
+          "UNKNOWN"
+        ) +
+        "|" +
         signalBar.time +
         "|" +
         momentum.signal,
+
+      symbol:
+        symbol,
+
+      direction_mode:
+        directionMode,
+
+      bullish_rsi:
+        bullishRsi,
+
+      bearish_rsi:
+        bearishRsi,
+
+      required_signals:
+        requiredSignals,
 
       signal:
         momentum.signal,
@@ -1920,6 +1987,106 @@ function runDirectionalBacktest({
   }
 
   return trades;
+}
+
+function splitTradesByDate({
+  trades,
+  trainBoundary,
+  validationBoundary,
+}) {
+  const train = [];
+  const validation = [];
+  const test = [];
+
+  for (const trade of trades) {
+    const time =
+      Date.parse(
+        trade.signal_time ||
+        trade.entry_time ||
+        0
+      );
+
+    if (
+      time <
+      trainBoundary.getTime()
+    ) {
+      train.push(
+        trade
+      );
+
+      continue;
+    }
+
+    if (
+      time <
+      validationBoundary.getTime()
+    ) {
+      validation.push(
+        trade
+      );
+
+      continue;
+    }
+
+    test.push(
+      trade
+    );
+  }
+
+  return {
+    train,
+    validation,
+    test,
+  };
+}
+
+function researchCandidateScore(
+  summary
+) {
+  if (
+    !summary ||
+    summary.trades <
+      5 ||
+    summary.average_return_pct ===
+      null
+  ) {
+    return null;
+  }
+
+  const average =
+    summary.average_return_pct;
+
+  const drawdownPenalty =
+    Math.abs(
+      summary.max_drawdown_pct ??
+      0
+    ) *
+    0.05;
+
+  return (
+    average -
+    drawdownPenalty
+  );
+}
+
+function summarizeBySymbol(
+  trades,
+  symbols
+) {
+  return symbols.map(
+    (symbol) => ({
+      symbol,
+
+      summary:
+        summarizeBacktestTrades(
+          trades.filter(
+            (trade) =>
+              trade.symbol ===
+              symbol
+          )
+        ),
+    })
+  );
 }
 
 /*
@@ -3373,6 +3540,767 @@ app.post(
           ),
 
         trades,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+app.post(
+  "/scanner/backtest-research",
+
+  async (req, res) => {
+    try {
+      const rawSymbols =
+        Array.isArray(
+          req.body
+            ?.symbols
+        )
+          ? req.body
+              .symbols
+          : [
+              req.body
+                ?.symbol,
+            ];
+
+      const symbols =
+        [
+          ...new Set(
+            rawSymbols
+              .filter(
+                Boolean
+              )
+              .map(
+                normalizeTicker
+              )
+          ),
+        ].slice(
+          0,
+          12
+        );
+
+      if (
+        !symbols.length
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "At least one ticker symbol is required.",
+          });
+      }
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          180,
+          3650,
+          730
+        );
+
+      const costBps =
+        Math.max(
+          0,
+          Math.min(
+            500,
+            Number(
+              req.body
+                ?.costBps ??
+              10
+            ) ||
+            0
+          )
+        );
+
+      const nonOverlapping =
+        req.body
+          ?.nonOverlapping !==
+        false;
+
+      const holdVariants =
+        [
+          1,
+          3,
+          5,
+          10,
+          20,
+        ];
+
+      const rsiProfiles = [
+        {
+          label:
+            "50/50",
+
+          bullishRsi:
+            50,
+
+          bearishRsi:
+            50,
+        },
+
+        {
+          label:
+            "55/45",
+
+          bullishRsi:
+            55,
+
+          bearishRsi:
+            45,
+        },
+
+        {
+          label:
+            "60/40",
+
+          bullishRsi:
+            60,
+
+          bearishRsi:
+            40,
+        },
+      ];
+
+      const signalRequirements = [
+        2,
+        3,
+      ];
+
+      const directionModes = [
+        "both",
+        "bullish_only",
+        "bearish_only",
+      ];
+
+      const end =
+        new Date();
+
+      const requestedStart =
+        new Date(
+          end.getTime() -
+          lookbackDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const fetchStart =
+        new Date(
+          requestedStart.getTime() -
+          120 *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const trainBoundary =
+        new Date(
+          requestedStart.getTime() +
+          (
+            end.getTime() -
+            requestedStart.getTime()
+          ) *
+            0.6
+        );
+
+      const validationBoundary =
+        new Date(
+          requestedStart.getTime() +
+          (
+            end.getTime() -
+            requestedStart.getTime()
+          ) *
+            0.8
+        );
+
+      const marketData =
+        {};
+
+      for (
+        const symbol of symbols
+      ) {
+        const common = {
+          start_time:
+            fetchStart.toISOString(),
+
+          end_time:
+            end.toISOString(),
+
+          interval:
+            "day",
+
+          bounds:
+            "regular",
+
+          adjustment_type:
+            "split",
+        };
+
+        const [
+          historicalResult,
+          rsiResult,
+          macdResult,
+        ] =
+          await Promise.all([
+            callRobinhoodTool(
+              "get_equity_historicals",
+              {
+                symbols: [
+                  symbol,
+                ],
+
+                ...common,
+              }
+            ),
+
+            callRobinhoodTool(
+              "get_equity_technical_indicators",
+              {
+                symbol,
+
+                type:
+                  "rsi",
+
+                ...common,
+
+                output:
+                  "series",
+
+                period:
+                  14,
+              }
+            ),
+
+            callRobinhoodTool(
+              "get_equity_technical_indicators",
+              {
+                symbol,
+
+                type:
+                  "macd",
+
+                ...common,
+
+                output:
+                  "series",
+
+                fast_period:
+                  12,
+
+                slow_period:
+                  26,
+
+                signal_period:
+                  9,
+              }
+            ),
+          ]);
+
+        marketData[
+          symbol
+        ] = {
+          bars:
+            extractBacktestBars(
+              unwrapRobinhoodToolResult(
+                historicalResult
+              )
+            ),
+
+          rsiSeries:
+            extractBacktestIndicator(
+              unwrapRobinhoodToolResult(
+                rsiResult
+              ),
+              "rsi"
+            ),
+
+          macdSeries:
+            extractBacktestIndicator(
+              unwrapRobinhoodToolResult(
+                macdResult
+              ),
+              "macd"
+            ),
+        };
+      }
+
+      const variants =
+        [];
+
+      for (
+        const directionMode of directionModes
+      ) {
+        for (
+          const holdDays of holdVariants
+        ) {
+          for (
+            const rsiProfile of rsiProfiles
+          ) {
+            for (
+              const requiredSignals of signalRequirements
+            ) {
+              const allTrades =
+                [];
+
+              for (
+                const symbol of symbols
+              ) {
+                const data =
+                  marketData[
+                    symbol
+                  ];
+
+                const symbolTrades =
+                  runDirectionalBacktest({
+                    bars:
+                      data.bars,
+
+                    rsiSeries:
+                      data.rsiSeries,
+
+                    macdSeries:
+                      data.macdSeries,
+
+                    requestedStart,
+                    holdDays,
+                    costBps,
+                    nonOverlapping,
+                    directionMode,
+
+                    bullishRsi:
+                      rsiProfile
+                        .bullishRsi,
+
+                    bearishRsi:
+                      rsiProfile
+                        .bearishRsi,
+
+                    requiredSignals,
+                    symbol,
+                  });
+
+                allTrades.push(
+                  ...symbolTrades
+                );
+              }
+
+              allTrades.sort(
+                (a, b) =>
+                  Date.parse(
+                    a.exit_time
+                  ) -
+                  Date.parse(
+                    b.exit_time
+                  )
+              );
+
+              const split =
+                splitTradesByDate({
+                  trades:
+                    allTrades,
+
+                  trainBoundary,
+
+                  validationBoundary,
+                });
+
+              const trainSummary =
+                summarizeBacktestTrades(
+                  split.train
+                );
+
+              const validationSummary =
+                summarizeBacktestTrades(
+                  split.validation
+                );
+
+              const testSummary =
+                summarizeBacktestTrades(
+                  split.test
+                );
+
+              variants.push({
+                id:
+                  directionMode +
+                  "|" +
+                  holdDays +
+                  "|" +
+                  rsiProfile.label +
+                  "|" +
+                  requiredSignals,
+
+                parameters: {
+                  direction_mode:
+                    directionMode,
+
+                  hold_sessions:
+                    holdDays,
+
+                  rsi_profile:
+                    rsiProfile.label,
+
+                  bullish_rsi:
+                    rsiProfile
+                      .bullishRsi,
+
+                  bearish_rsi:
+                    rsiProfile
+                      .bearishRsi,
+
+                  required_signals:
+                    requiredSignals,
+
+                  cost_bps:
+                    costBps,
+                },
+
+                train:
+                  trainSummary,
+
+                validation:
+                  validationSummary,
+
+                test:
+                  testSummary,
+
+                overall:
+                  summarizeBacktestTrades(
+                    allTrades
+                  ),
+
+                validation_score:
+                  researchCandidateScore(
+                    validationSummary
+                  ),
+              });
+            }
+          }
+        }
+      }
+
+      const eligible =
+        variants
+          .filter(
+            (variant) =>
+              variant.validation_score !==
+                null &&
+              variant.train.trades >=
+                10
+          )
+          .sort(
+            (a, b) =>
+              b.validation_score -
+                a.validation_score ||
+              (
+                b.validation
+                  .profit_factor ??
+                -Infinity
+              ) -
+                (
+                  a.validation
+                    .profit_factor ??
+                  -Infinity
+                )
+          );
+
+      const selected =
+        eligible[0] ??
+        null;
+
+      const baseline =
+        variants.find(
+          (variant) =>
+            variant.parameters
+              .direction_mode ===
+              "both" &&
+            variant.parameters
+              .hold_sessions ===
+              5 &&
+            variant.parameters
+              .rsi_profile ===
+              "55/45" &&
+            variant.parameters
+              .required_signals ===
+              2
+        ) ??
+        null;
+
+      const frictionSensitivity =
+        [];
+
+      if (
+        selected
+      ) {
+        for (
+          const sensitivityBps of [
+            0,
+            10,
+            25,
+            50,
+          ]
+        ) {
+          const sensitivityTrades =
+            [];
+
+          for (
+            const symbol of symbols
+          ) {
+            const data =
+              marketData[
+                symbol
+              ];
+
+            sensitivityTrades.push(
+              ...runDirectionalBacktest({
+                bars:
+                  data.bars,
+
+                rsiSeries:
+                  data.rsiSeries,
+
+                macdSeries:
+                  data.macdSeries,
+
+                requestedStart,
+
+                holdDays:
+                  selected
+                    .parameters
+                    .hold_sessions,
+
+                costBps:
+                  sensitivityBps,
+
+                nonOverlapping,
+
+                directionMode:
+                  selected
+                    .parameters
+                    .direction_mode,
+
+                bullishRsi:
+                  selected
+                    .parameters
+                    .bullish_rsi,
+
+                bearishRsi:
+                  selected
+                    .parameters
+                    .bearish_rsi,
+
+                requiredSignals:
+                  selected
+                    .parameters
+                    .required_signals,
+
+                symbol,
+              })
+            );
+          }
+
+          sensitivityTrades.sort(
+            (a, b) =>
+              Date.parse(
+                a.exit_time
+              ) -
+              Date.parse(
+                b.exit_time
+              )
+          );
+
+          const split =
+            splitTradesByDate({
+              trades:
+                sensitivityTrades,
+
+              trainBoundary,
+
+              validationBoundary,
+            });
+
+          frictionSensitivity.push({
+            cost_bps:
+              sensitivityBps,
+
+            validation:
+              summarizeBacktestTrades(
+                split.validation
+              ),
+
+            test:
+              summarizeBacktestTrades(
+                split.test
+              ),
+          });
+        }
+      }
+
+      let selectedTickerTest =
+        [];
+
+      if (
+        selected
+      ) {
+        const selectedTrades =
+          [];
+
+        for (
+          const symbol of symbols
+        ) {
+          const data =
+            marketData[
+              symbol
+            ];
+
+          selectedTrades.push(
+            ...runDirectionalBacktest({
+              bars:
+                data.bars,
+
+              rsiSeries:
+                data.rsiSeries,
+
+              macdSeries:
+                data.macdSeries,
+
+              requestedStart,
+
+              holdDays:
+                selected
+                  .parameters
+                  .hold_sessions,
+
+              costBps,
+
+              nonOverlapping,
+
+              directionMode:
+                selected
+                  .parameters
+                  .direction_mode,
+
+              bullishRsi:
+                selected
+                  .parameters
+                  .bullish_rsi,
+
+              bearishRsi:
+                selected
+                  .parameters
+                  .bearish_rsi,
+
+              requiredSignals:
+                selected
+                  .parameters
+                  .required_signals,
+
+              symbol,
+            })
+          );
+        }
+
+        const selectedSplit =
+          splitTradesByDate({
+            trades:
+              selectedTrades,
+
+            trainBoundary,
+
+            validationBoundary,
+          });
+
+        selectedTickerTest =
+          summarizeBySymbol(
+            selectedSplit.test,
+            symbols
+          );
+      }
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "scanner_research_lab_v1",
+
+        symbols,
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          cost_bps:
+            costBps,
+
+          non_overlapping:
+            nonOverlapping,
+        },
+
+        split_dates: {
+          requested_start:
+            requestedStart.toISOString(),
+
+          train_end:
+            trainBoundary.toISOString(),
+
+          validation_end:
+            validationBoundary.toISOString(),
+
+          end:
+            end.toISOString(),
+        },
+
+        search_space: {
+          direction_modes:
+            directionModes,
+
+          hold_sessions:
+            holdVariants,
+
+          rsi_profiles:
+            rsiProfiles,
+
+          required_signals:
+            signalRequirements,
+
+          variant_count:
+            variants.length,
+
+          selection_rule:
+            "Highest validation score among variants with at least 5 validation trades and 10 training trades. Score = validation average return minus 5% of absolute validation drawdown. Test results are not used for selection.",
+        },
+
+        baseline,
+
+        selected_candidate:
+          selected,
+
+        top_candidates:
+          eligible.slice(
+            0,
+            12
+          ),
+
+        selected_candidate_friction_sensitivity:
+          frictionSensitivity,
+
+        selected_candidate_test_by_ticker:
+          selectedTickerTest,
+
+        cautions: [
+          "The research lab uses underlying stock directional returns, not historical option-spread P/L.",
+          "The test window is displayed only after a candidate is selected from earlier data; do not retune parameters based on the test result.",
+          "A small number of trades can make validation and test statistics unstable.",
+          "Research across many variants increases overfitting risk even with a held-out test period.",
+        ],
       });
 
     } catch (error) {
