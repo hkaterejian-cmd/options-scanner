@@ -3271,6 +3271,534 @@ function applyRiskOverlayToTrades({
     );
 }
 
+
+function utcDateKey(
+  value
+) {
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(
+          value
+        );
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date
+    .toISOString()
+    .slice(
+      0,
+      10
+    );
+}
+
+function addUtcDays(
+  value,
+  days
+) {
+  const date =
+    value instanceof Date
+      ? new Date(
+          value.getTime()
+        )
+      : new Date(
+          value
+        );
+
+  date.setUTCDate(
+    date.getUTCDate() +
+      days
+  );
+
+  return date;
+}
+
+function nextFridayOnOrAfter(
+  value
+) {
+  const date =
+    value instanceof Date
+      ? new Date(
+          value.getTime()
+        )
+      : new Date(
+          value
+        );
+
+  date.setUTCHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  const day =
+    date.getUTCDay();
+
+  const delta =
+    (
+      5 -
+      day +
+      7
+    ) %
+    7;
+
+  return addUtcDays(
+    date,
+    delta
+  );
+}
+
+function extractOptionHistoricalResults(
+  payload
+) {
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  return Array.isArray(
+    data?.results
+  )
+    ? data.results
+    : [];
+}
+
+function normalizeOptionBars(
+  result
+) {
+  const bars =
+    Array.isArray(
+      result?.bars
+    )
+      ? result.bars
+      : [];
+
+  return bars
+    .filter(
+      (bar) =>
+        !bar?.interpolated
+    )
+    .map(
+      (bar) => ({
+        time:
+          bar.begins_at,
+
+        date:
+          utcDateKey(
+            bar.begins_at
+          ),
+
+        open:
+          finiteNumber(
+            bar.open_price
+          ),
+
+        high:
+          finiteNumber(
+            bar.high_price
+          ),
+
+        low:
+          finiteNumber(
+            bar.low_price
+          ),
+
+        close:
+          finiteNumber(
+            bar.close_price
+          ),
+      })
+    )
+    .filter(
+      (bar) =>
+        bar.date &&
+        bar.open !==
+          null &&
+        bar.close !==
+          null
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(
+          a.time
+        ) -
+        Date.parse(
+          b.time
+        )
+    );
+}
+
+async function loadExpiredOptionInstruments({
+  symbol,
+  expiration,
+  type,
+  maxPages = 8,
+}) {
+  const instruments =
+    [];
+
+  let cursor =
+    null;
+
+  for (
+    let page =
+      0;
+    page <
+    maxPages;
+    page++
+  ) {
+    const result =
+      await callRobinhoodTool(
+        "get_option_instruments",
+        {
+          chain_symbol:
+            symbol,
+
+          expiration_dates:
+            expiration,
+
+          state:
+            "expired",
+
+          type,
+
+          ...(cursor
+            ? {
+                cursor,
+              }
+            : {}),
+        }
+      );
+
+    const payload =
+      unwrapRobinhoodToolResult(
+        result
+      );
+
+    const data =
+      payload?.data ??
+      payload ??
+      {};
+
+    const pageInstruments =
+      Array.isArray(
+        data?.instruments
+      )
+        ? data.instruments
+        : [];
+
+    instruments.push(
+      ...pageInstruments
+    );
+
+    cursor =
+      data?.next ??
+      null;
+
+    if (!cursor) {
+      break;
+    }
+  }
+
+  return instruments;
+}
+
+function chooseHistoricalVertical({
+  instruments,
+  type,
+  spot,
+  shortDistancePct,
+}) {
+  const usable =
+    instruments
+      .map(
+        (instrument) => ({
+          ...instrument,
+
+          strike:
+            finiteNumber(
+              instrument
+                .strike_price
+            ),
+        })
+      )
+      .filter(
+        (instrument) =>
+          instrument.strike !==
+            null &&
+          instrument.type ===
+            type
+      )
+      .sort(
+        (a, b) =>
+          a.strike -
+          b.strike
+      );
+
+  if (
+    usable.length <
+    2
+  ) {
+    return null;
+  }
+
+  const long =
+    usable.reduce(
+      (
+        best,
+        item
+      ) =>
+        Math.abs(
+          item.strike -
+          spot
+        ) <
+        Math.abs(
+          best.strike -
+          spot
+        )
+          ? item
+          : best,
+      usable[0]
+    );
+
+  const targetShort =
+    type ===
+    "call"
+      ? spot *
+        (
+          1 +
+          shortDistancePct /
+            100
+        )
+      : spot *
+        (
+          1 -
+          shortDistancePct /
+            100
+        );
+
+  const candidates =
+    usable.filter(
+      (item) =>
+        type ===
+        "call"
+          ? item.strike >
+            long.strike
+          : item.strike <
+            long.strike
+    );
+
+  if (
+    !candidates.length
+  ) {
+    return null;
+  }
+
+  const short =
+    candidates.reduce(
+      (
+        best,
+        item
+      ) =>
+        Math.abs(
+          item.strike -
+          targetShort
+        ) <
+        Math.abs(
+          best.strike -
+          targetShort
+        )
+          ? item
+          : best,
+      candidates[0]
+    );
+
+  const width =
+    Math.abs(
+      short.strike -
+      long.strike
+    );
+
+  if (
+    width <=
+    0
+  ) {
+    return null;
+  }
+
+  return {
+    long,
+    short,
+    width,
+  };
+}
+
+function summarizeOptionReplay(
+  trades
+) {
+  const usable =
+    Array.isArray(
+      trades
+    )
+      ? trades
+      : [];
+
+  const wins =
+    usable.filter(
+      (trade) =>
+        trade.pnl_dollars >
+        0
+    );
+
+  const losses =
+    usable.filter(
+      (trade) =>
+        trade.pnl_dollars <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        trade.pnl_dollars,
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          trade.pnl_dollars,
+        0
+      )
+    );
+
+  let cumulative =
+    0;
+
+  let peak =
+    0;
+
+  let maxDrawdown =
+    0;
+
+  for (
+    const trade of usable
+  ) {
+    cumulative +=
+      trade.pnl_dollars;
+
+    peak =
+      Math.max(
+        peak,
+        cumulative
+      );
+
+    maxDrawdown =
+      Math.min(
+        maxDrawdown,
+        cumulative -
+        peak
+      );
+  }
+
+  return {
+    trades:
+      usable.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    win_rate_pct:
+      usable.length
+        ? (
+            wins.length /
+            usable.length
+          ) *
+          100
+        : null,
+
+    total_pnl_dollars:
+      cumulative,
+
+    average_pnl_dollars:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.pnl_dollars
+        )
+      ),
+
+    average_return_on_debit_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.return_on_debit_pct
+        )
+      ),
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : null,
+
+    max_drawdown_dollars:
+      maxDrawdown,
+
+    average_entry_debit:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.entry_debit
+        )
+      ),
+
+    average_dte:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.entry_dte
+        )
+      ),
+
+    average_close_path_mfe_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.close_path_mfe_pct
+        )
+      ),
+
+    average_close_path_mae_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.close_path_mae_pct
+        )
+      ),
+  };
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -8613,6 +9141,882 @@ app.post(
                 trade.selected_using_prior_data_only,
             })
           ),
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+app.post(
+  "/scanner/option-spread-replay",
+
+  async (req, res) => {
+    try {
+      const symbol =
+        normalizeTicker(
+          req.body
+            ?.symbol
+        );
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          60,
+          730,
+          180
+        );
+
+      const holdDays =
+        clampNumber(
+          req.body
+            ?.holdDays,
+          1,
+          20,
+          5
+        );
+
+      const targetDte =
+        clampNumber(
+          req.body
+            ?.targetDte,
+          5,
+          30,
+          9
+        );
+
+      const shortDistancePct =
+        Math.max(
+          1,
+          Math.min(
+            15,
+            Number(
+              req.body
+                ?.shortDistancePct ??
+              4
+            ) ||
+            4
+          )
+        );
+
+      const maxSignals =
+        clampNumber(
+          req.body
+            ?.maxSignals,
+          1,
+          30,
+          12
+        );
+
+      const directionMode =
+        [
+          "both",
+          "bullish_only",
+          "bearish_only",
+        ].includes(
+          req.body
+            ?.directionMode
+        )
+          ? req.body
+              .directionMode
+          : "both";
+
+      const end =
+        new Date();
+
+      const requestedStart =
+        new Date(
+          end.getTime() -
+          lookbackDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const fetchStart =
+        new Date(
+          requestedStart.getTime() -
+          120 *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const common = {
+        start_time:
+          fetchStart.toISOString(),
+
+        end_time:
+          end.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+
+        adjustment_type:
+          "split",
+      };
+
+      const [
+        historicalResult,
+        rsiResult,
+        macdResult,
+      ] =
+        await Promise.all([
+          callRobinhoodTool(
+            "get_equity_historicals",
+            {
+              symbols: [
+                symbol,
+              ],
+
+              ...common,
+            }
+          ),
+
+          callRobinhoodTool(
+            "get_equity_technical_indicators",
+            {
+              symbol,
+
+              type:
+                "rsi",
+
+              ...common,
+
+              output:
+                "series",
+
+              period:
+                14,
+            }
+          ),
+
+          callRobinhoodTool(
+            "get_equity_technical_indicators",
+            {
+              symbol,
+
+              type:
+                "macd",
+
+              ...common,
+
+              output:
+                "series",
+
+              fast_period:
+                12,
+
+              slow_period:
+                26,
+
+              signal_period:
+                9,
+            }
+          ),
+        ]);
+
+      const bars =
+        extractBacktestBars(
+          unwrapRobinhoodToolResult(
+            historicalResult
+          )
+        );
+
+      const rsiSeries =
+        extractBacktestIndicator(
+          unwrapRobinhoodToolResult(
+            rsiResult
+          ),
+          "rsi"
+        );
+
+      const macdSeries =
+        extractBacktestIndicator(
+          unwrapRobinhoodToolResult(
+            macdResult
+          ),
+          "macd"
+        );
+
+      const signals =
+        runDirectionalBacktest({
+          bars,
+          rsiSeries,
+          macdSeries,
+          requestedStart,
+          holdDays,
+          costBps:
+            0,
+          nonOverlapping:
+            true,
+          directionMode,
+          bullishRsi:
+            55,
+          bearishRsi:
+            45,
+          requiredSignals:
+            2,
+          symbol,
+        })
+          .filter(
+            (trade) =>
+              Date.parse(
+                trade.exit_time
+              ) <
+              end.getTime()
+          )
+          .slice(
+            -maxSignals
+          );
+
+      const instrumentCache =
+        new Map();
+
+      const replayed =
+        [];
+
+      const skipped =
+        [];
+
+      for (
+        const signal of signals
+      ) {
+        const type =
+          signal.signal ===
+          "bullish"
+            ? "call"
+            : "put";
+
+        const entryDate =
+          new Date(
+            signal.entry_time
+          );
+
+        const desiredExpiration =
+          nextFridayOnOrAfter(
+            addUtcDays(
+              entryDate,
+              targetDte
+            )
+          );
+
+        let chosenExpiration =
+          null;
+
+        let instruments =
+          [];
+
+        for (
+          let attempt =
+            0;
+          attempt <
+          4;
+          attempt++
+        ) {
+          const expirationDate =
+            addUtcDays(
+              desiredExpiration,
+              attempt *
+                7
+            );
+
+          if (
+            expirationDate.getTime() >=
+            end.getTime()
+          ) {
+            continue;
+          }
+
+          const expiration =
+            utcDateKey(
+              expirationDate
+            );
+
+          const cacheKey =
+            symbol +
+            "|" +
+            expiration +
+            "|" +
+            type;
+
+          if (
+            instrumentCache.has(
+              cacheKey
+            )
+          ) {
+            instruments =
+              instrumentCache.get(
+                cacheKey
+              );
+          } else {
+            instruments =
+              await loadExpiredOptionInstruments({
+                symbol,
+                expiration,
+                type,
+              });
+
+            instrumentCache.set(
+              cacheKey,
+              instruments
+            );
+          }
+
+          if (
+            instruments.length >=
+            2
+          ) {
+            chosenExpiration =
+              expiration;
+
+            break;
+          }
+        }
+
+        if (
+          !chosenExpiration
+        ) {
+          skipped.push({
+            signal_time:
+              signal.signal_time,
+
+            entry_time:
+              signal.entry_time,
+
+            reason:
+              "No expired option expiration found after target DTE.",
+          });
+
+          continue;
+        }
+
+        const vertical =
+          chooseHistoricalVertical({
+            instruments,
+            type,
+            spot:
+              signal.entry_open,
+            shortDistancePct,
+          });
+
+        if (!vertical) {
+          skipped.push({
+            signal_time:
+              signal.signal_time,
+
+            entry_time:
+              signal.entry_time,
+
+            expiration:
+              chosenExpiration,
+
+            reason:
+              "Could not construct an ATM-to-OTM vertical from expired contracts.",
+          });
+
+          continue;
+        }
+
+        const historyStart =
+          addUtcDays(
+            new Date(
+              signal.entry_time
+            ),
+            -1
+          );
+
+        const plannedExit =
+          new Date(
+            signal.exit_time
+          );
+
+        const historyEnd =
+          addUtcDays(
+            plannedExit,
+            1
+          );
+
+        const optionHistoricalResult =
+          await callRobinhoodTool(
+            "get_option_historicals",
+            {
+              instrument_ids: [
+                vertical
+                  .long
+                  .id,
+
+                vertical
+                  .short
+                  .id,
+              ],
+
+              start_time:
+                historyStart.toISOString(),
+
+              end_time:
+                historyEnd.toISOString(),
+
+              interval:
+                "day",
+
+              bounds:
+                "regular",
+            }
+          );
+
+        const historyPayload =
+          unwrapRobinhoodToolResult(
+            optionHistoricalResult
+          );
+
+        const results =
+          extractOptionHistoricalResults(
+            historyPayload
+          );
+
+        const longResult =
+          results.find(
+            (item) =>
+              item.instrument_id ===
+              vertical.long.id
+          );
+
+        const shortResult =
+          results.find(
+            (item) =>
+              item.instrument_id ===
+              vertical.short.id
+          );
+
+        const longBars =
+          normalizeOptionBars(
+            longResult
+          );
+
+        const shortBars =
+          normalizeOptionBars(
+            shortResult
+          );
+
+        const entryKey =
+          utcDateKey(
+            signal.entry_time
+          );
+
+        const exitKey =
+          utcDateKey(
+            signal.exit_time
+          );
+
+        const longEntry =
+          longBars.find(
+            (bar) =>
+              bar.date ===
+              entryKey
+          );
+
+        const shortEntry =
+          shortBars.find(
+            (bar) =>
+              bar.date ===
+              entryKey
+          );
+
+        const longExit =
+          longBars.find(
+            (bar) =>
+              bar.date ===
+              exitKey
+          );
+
+        const shortExit =
+          shortBars.find(
+            (bar) =>
+              bar.date ===
+              exitKey
+          );
+
+        if (
+          !longEntry ||
+          !shortEntry ||
+          !longExit ||
+          !shortExit
+        ) {
+          skipped.push({
+            signal_time:
+              signal.signal_time,
+
+            entry_time:
+              signal.entry_time,
+
+            expiration:
+              chosenExpiration,
+
+            long_strike:
+              vertical
+                .long
+                .strike,
+
+            short_strike:
+              vertical
+                .short
+                .strike,
+
+            reason:
+              "Historical option bars were missing on the exact entry or exit date.",
+          });
+
+          continue;
+        }
+
+        const rawEntryDebit =
+          longEntry.open -
+          shortEntry.open;
+
+        if (
+          rawEntryDebit <=
+            0 ||
+          rawEntryDebit >=
+            vertical.width
+        ) {
+          skipped.push({
+            signal_time:
+              signal.signal_time,
+
+            entry_time:
+              signal.entry_time,
+
+            expiration:
+              chosenExpiration,
+
+            long_strike:
+              vertical
+                .long
+                .strike,
+
+            short_strike:
+              vertical
+                .short
+                .strike,
+
+            reason:
+              "Historical trade-price bars produced an invalid vertical entry debit.",
+          });
+
+          continue;
+        }
+
+        const rawExitValue =
+          longExit.close -
+          shortExit.close;
+
+        const exitValue =
+          Math.max(
+            0,
+            Math.min(
+              vertical.width,
+              rawExitValue
+            )
+          );
+
+        const pnlDollars =
+          (
+            exitValue -
+            rawEntryDebit
+          ) *
+          100;
+
+        const returnOnDebitPct =
+          (
+            (
+              exitValue -
+              rawEntryDebit
+            ) /
+            rawEntryDebit
+          ) *
+          100;
+
+        const shortByDate =
+          new Map(
+            shortBars.map(
+              (bar) => [
+                bar.date,
+                bar,
+              ]
+            )
+          );
+
+        const closePath =
+          longBars
+            .filter(
+              (bar) =>
+                bar.date >=
+                  entryKey &&
+                bar.date <=
+                  exitKey &&
+                shortByDate.has(
+                  bar.date
+                )
+            )
+            .map(
+              (bar) => {
+                const shortBar =
+                  shortByDate.get(
+                    bar.date
+                  );
+
+                const value =
+                  Math.max(
+                    0,
+                    Math.min(
+                      vertical.width,
+                      bar.close -
+                      shortBar.close
+                    )
+                  );
+
+                return {
+                  date:
+                    bar.date,
+
+                  spread_value:
+                    value,
+
+                  return_pct:
+                    (
+                      (
+                        value -
+                        rawEntryDebit
+                      ) /
+                      rawEntryDebit
+                    ) *
+                    100,
+                };
+              }
+            );
+
+        const closeReturns =
+          closePath.map(
+            (row) =>
+              row.return_pct
+          );
+
+        const expirationDate =
+          new Date(
+            chosenExpiration +
+            "T00:00:00Z"
+          );
+
+        const dte =
+          Math.round(
+            (
+              expirationDate.getTime() -
+              entryDate.getTime()
+            ) /
+              (
+                24 *
+                60 *
+                60 *
+                1000
+              )
+          );
+
+        replayed.push({
+          id:
+            symbol +
+            "|" +
+            signal.signal_time +
+            "|" +
+            chosenExpiration +
+            "|" +
+            type,
+
+          symbol,
+
+          signal:
+            signal.signal,
+
+          signal_time:
+            signal.signal_time,
+
+          entry_time:
+            signal.entry_time,
+
+          exit_time:
+            signal.exit_time,
+
+          entry_underlying:
+            signal.entry_open,
+
+          exit_underlying:
+            signal.exit_close,
+
+          rsi:
+            signal.rsi,
+
+          macd_histogram:
+            signal.macd_histogram,
+
+          option_type:
+            type,
+
+          expiration:
+            chosenExpiration,
+
+          entry_dte:
+            dte,
+
+          long_option_id:
+            vertical.long.id,
+
+          short_option_id:
+            vertical.short.id,
+
+          long_strike:
+            vertical.long.strike,
+
+          short_strike:
+            vertical.short.strike,
+
+          spread_width:
+            vertical.width,
+
+          entry_long_open:
+            longEntry.open,
+
+          entry_short_open:
+            shortEntry.open,
+
+          entry_debit:
+            rawEntryDebit,
+
+          exit_long_close:
+            longExit.close,
+
+          exit_short_close:
+            shortExit.close,
+
+          exit_spread_value:
+            exitValue,
+
+          pnl_dollars:
+            pnlDollars,
+
+          return_on_debit_pct:
+            returnOnDebitPct,
+
+          close_path_mfe_pct:
+            closeReturns.length
+              ? Math.max(
+                  ...closeReturns
+                )
+              : null,
+
+          close_path_mae_pct:
+            closeReturns.length
+              ? Math.min(
+                  ...closeReturns
+                )
+              : null,
+
+          close_path:
+            closePath,
+
+          favorable:
+            pnlDollars >
+            0,
+        });
+      }
+
+      replayed.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "historical_option_vertical_replay_v1",
+
+        symbol,
+
+        methodology: {
+          signal:
+            "Current scanner rule: RSI 55/45, MACD histogram sign, and daily move; 2 of 3 aligned signals.",
+
+          structure:
+            "Bullish signals use call debit spreads; bearish signals use put debit spreads. The long strike is nearest the historical underlying entry price. The short strike is chosen near the configured OTM distance.",
+
+          expiration:
+            "The replay searches for the first expired Friday expiration on or after the target DTE, then up to three later weekly dates.",
+
+          pricing:
+            "Entry debit uses each leg's historical option daily open trade price. Exit value uses each leg's historical daily close trade price. These are trade-price proxies, not synchronized bid/ask quotes.",
+
+          path:
+            "MFE and MAE use synchronized daily closing spread values only, not intraday spread quotes.",
+
+          caution:
+            "Historical Greeks, IV surfaces, bid/ask spreads, volume, open interest, and assignment are not reconstructed in this v1 replay.",
+        },
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          hold_sessions:
+            holdDays,
+
+          target_dte:
+            targetDte,
+
+          short_distance_pct:
+            shortDistancePct,
+
+          max_signals:
+            maxSignals,
+
+          direction_mode:
+            directionMode,
+        },
+
+        signal_count:
+          signals.length,
+
+        replayed_count:
+          replayed.length,
+
+        skipped_count:
+          skipped.length,
+
+        summary:
+          summarizeOptionReplay(
+            replayed
+          ),
+
+        trades:
+          replayed,
+
+        skipped,
       });
 
     } catch (error) {
