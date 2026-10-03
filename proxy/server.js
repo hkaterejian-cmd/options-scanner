@@ -509,6 +509,40 @@ function defaultScannerState() {
 
     paperTrades: [],
 
+    paperSettings: {
+      fillModel:
+        "quarter_spread",
+
+      feePerContractPerLeg:
+        0,
+
+      riskLimits: {
+        maxLossPerTrade:
+          500,
+
+        maxTotalOpenRisk:
+          1500,
+
+        maxTickerOpenRisk:
+          750,
+
+        maxOpenPositions:
+          3,
+
+        minOpenInterest:
+          100,
+
+        minVolume:
+          20,
+
+        maxBidAskPct:
+          15,
+
+        minRewardRisk:
+          1,
+      },
+    },
+
     preferences: {
       autoRefresh: {
         enabled: false,
@@ -578,6 +612,150 @@ function normalizeStoredState(input) {
         )
       : [];
 
+  const incomingPaperSettings =
+    value.paperSettings &&
+    typeof value.paperSettings ===
+      "object" &&
+    !Array.isArray(
+      value.paperSettings
+    )
+      ? value.paperSettings
+      : {};
+
+  const allowedFillModels =
+    new Set([
+      "midpoint",
+      "quarter_spread",
+      "conservative",
+    ]);
+
+  const normalizeNonNegativeNumber =
+    (
+      input,
+      fallback
+    ) => {
+      const number =
+        Number(
+          input
+        );
+
+      return Number.isFinite(
+        number
+      )
+        ? Math.max(
+            0,
+            number
+          )
+        : fallback;
+    };
+
+  const paperSettings = {
+    fillModel:
+      allowedFillModels.has(
+        incomingPaperSettings
+          .fillModel
+      )
+        ? incomingPaperSettings
+            .fillModel
+        : base.paperSettings
+            .fillModel,
+
+    feePerContractPerLeg:
+      normalizeNonNegativeNumber(
+        incomingPaperSettings
+          .feePerContractPerLeg,
+        base.paperSettings
+          .feePerContractPerLeg
+      ),
+
+    riskLimits: {
+      maxLossPerTrade:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.maxLossPerTrade,
+          base.paperSettings
+            .riskLimits
+            .maxLossPerTrade
+        ),
+
+      maxTotalOpenRisk:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.maxTotalOpenRisk,
+          base.paperSettings
+            .riskLimits
+            .maxTotalOpenRisk
+        ),
+
+      maxTickerOpenRisk:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.maxTickerOpenRisk,
+          base.paperSettings
+            .riskLimits
+            .maxTickerOpenRisk
+        ),
+
+      maxOpenPositions:
+        Math.max(
+          1,
+          Math.round(
+            normalizeNonNegativeNumber(
+              incomingPaperSettings
+                ?.riskLimits
+                ?.maxOpenPositions,
+              base.paperSettings
+                .riskLimits
+                .maxOpenPositions
+            )
+          )
+        ),
+
+      minOpenInterest:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.minOpenInterest,
+          base.paperSettings
+            .riskLimits
+            .minOpenInterest
+        ),
+
+      minVolume:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.minVolume,
+          base.paperSettings
+            .riskLimits
+            .minVolume
+        ),
+
+      maxBidAskPct:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.maxBidAskPct,
+          base.paperSettings
+            .riskLimits
+            .maxBidAskPct
+        ),
+
+      minRewardRisk:
+        normalizeNonNegativeNumber(
+          incomingPaperSettings
+            ?.riskLimits
+            ?.minRewardRisk,
+          base.paperSettings
+            .riskLimits
+            .minRewardRisk
+        ),
+    },
+  };
+
   const autoRefreshSeconds =
     Number(
       value.preferences
@@ -600,6 +778,8 @@ function normalizeStoredState(input) {
     savedComparisons,
 
     paperTrades,
+
+    paperSettings,
 
     preferences: {
       autoRefresh: {
@@ -1055,6 +1235,23 @@ app.get(
           ).length,
       },
 
+      paperTrading: {
+        fillModel:
+          state.paperSettings
+            ?.fillModel ??
+          "quarter_spread",
+
+        feePerContractPerLeg:
+          state.paperSettings
+            ?.feePerContractPerLeg ??
+          0,
+
+        riskLimits:
+          state.paperSettings
+            ?.riskLimits ??
+          {},
+      },
+
       preferences: {
         autoRefresh:
           state.preferences
@@ -1115,6 +1312,37 @@ app.post(
             current.paperTrades,
             incoming.paperTrades
           ),
+
+        paperSettings: {
+          ...current.paperSettings,
+
+          ...(
+            incoming.paperSettings &&
+            typeof incoming.paperSettings ===
+              "object" &&
+            !Array.isArray(
+              incoming.paperSettings
+            )
+              ? incoming.paperSettings
+              : {}
+          ),
+
+          riskLimits: {
+            ...current.paperSettings
+              .riskLimits,
+
+            ...(
+              incoming.paperSettings
+                ?.riskLimits &&
+              typeof incoming.paperSettings
+                .riskLimits ===
+                "object"
+                ? incoming.paperSettings
+                    .riskLimits
+                : {}
+            ),
+          },
+        },
 
         preferences: {
           autoRefresh: {
@@ -1233,6 +1461,67 @@ app.put(
         await writeScannerState({
           ...current,
           savedComparisons,
+        })
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/state/paper-settings",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const incoming =
+        req.body
+          ?.paperSettings &&
+        typeof req.body
+          .paperSettings ===
+          "object" &&
+        !Array.isArray(
+          req.body
+            .paperSettings
+        )
+          ? req.body
+              .paperSettings
+          : {};
+
+      return res.json(
+        await writeScannerState({
+          ...current,
+
+          paperSettings: {
+            ...current.paperSettings,
+
+            ...incoming,
+
+            riskLimits: {
+              ...current.paperSettings
+                .riskLimits,
+
+              ...(
+                incoming.riskLimits &&
+                typeof incoming.riskLimits ===
+                  "object"
+                  ? incoming
+                      .riskLimits
+                  : {}
+              ),
+            },
+          },
         })
       );
 
