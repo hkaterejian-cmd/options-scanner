@@ -1,6 +1,8 @@
 require("dotenv").config();
 
 const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const express = require("express");
 const cors = require("cors");
 
@@ -24,6 +26,18 @@ const ROBINHOOD_CALLBACK_URL =
 
 const ANTHROPIC_API_KEY =
   process.env.ANTHROPIC_API_KEY || "";
+
+const SCANNER_DATA_DIR =
+  path.join(
+    process.cwd(),
+    ".data"
+  );
+
+const SCANNER_STATE_FILE =
+  path.join(
+    SCANNER_DATA_DIR,
+    "scanner-state.json"
+  );
 
 /*
   =========================================================
@@ -478,6 +492,565 @@ async function callRobinhoodTool(
       args,
   });
 }
+
+/*
+  =========================================================
+  PERSISTENT SCANNER STATE
+  =========================================================
+*/
+
+function defaultScannerState() {
+  return {
+    version: 1,
+
+    savedPlans: [],
+
+    savedComparisons: {},
+
+    preferences: {
+      autoRefresh: {
+        enabled: false,
+        seconds: 60,
+      },
+
+      notifications: {
+        enabled: false,
+      },
+    },
+
+    updatedAt: null,
+  };
+}
+
+function normalizeStoredState(input) {
+  const base =
+    defaultScannerState();
+
+  const value =
+    input &&
+    typeof input ===
+      "object" &&
+    !Array.isArray(
+      input
+    )
+      ? input
+      : {};
+
+  const savedPlans =
+    Array.isArray(
+      value.savedPlans
+    )
+      ? value.savedPlans.filter(
+          (plan) =>
+            plan &&
+            typeof plan ===
+              "object" &&
+            !Array.isArray(
+              plan
+            )
+        )
+      : [];
+
+  const savedComparisons =
+    value.savedComparisons &&
+    typeof value.savedComparisons ===
+      "object" &&
+    !Array.isArray(
+      value.savedComparisons
+    )
+      ? value.savedComparisons
+      : {};
+
+  const autoRefreshSeconds =
+    Number(
+      value.preferences
+        ?.autoRefresh
+        ?.seconds
+    );
+
+  const allowedRefreshSeconds =
+    new Set([
+      30,
+      60,
+      300,
+    ]);
+
+  return {
+    version: 1,
+
+    savedPlans,
+
+    savedComparisons,
+
+    preferences: {
+      autoRefresh: {
+        enabled:
+          !!value.preferences
+            ?.autoRefresh
+            ?.enabled,
+
+        seconds:
+          allowedRefreshSeconds.has(
+            autoRefreshSeconds
+          )
+            ? autoRefreshSeconds
+            : base.preferences
+                .autoRefresh
+                .seconds,
+      },
+
+      notifications: {
+        enabled:
+          !!value.preferences
+            ?.notifications
+            ?.enabled,
+      },
+    },
+
+    updatedAt:
+      value.updatedAt ||
+      null,
+  };
+}
+
+async function readScannerState() {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  try {
+    const raw =
+      await fs.readFile(
+        SCANNER_STATE_FILE,
+        "utf8"
+      );
+
+    return normalizeStoredState(
+      JSON.parse(
+        raw
+      )
+    );
+  } catch (error) {
+    if (
+      error?.code ===
+      "ENOENT"
+    ) {
+      return defaultScannerState();
+    }
+
+    console.error(
+      "[Scanner state read]",
+      safeErrorMessage(
+        error
+      )
+    );
+
+    return defaultScannerState();
+  }
+}
+
+async function writeScannerState(state) {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  const normalized =
+    normalizeStoredState({
+      ...state,
+
+      updatedAt:
+        new Date().toISOString(),
+    });
+
+  normalized.updatedAt =
+    new Date().toISOString();
+
+  const temporaryFile =
+    `${SCANNER_STATE_FILE}.tmp`;
+
+  await fs.writeFile(
+    temporaryFile,
+    JSON.stringify(
+      normalized,
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  await fs.rename(
+    temporaryFile,
+    SCANNER_STATE_FILE
+  );
+
+  return normalized;
+}
+
+function savedPlanIdentity(plan) {
+  return (
+    plan?.structureKey ||
+    plan?.id ||
+    [
+      plan?.ticker,
+      plan?.expiration,
+      plan?.optionType,
+      plan?.longStrike,
+      plan?.shortStrike,
+    ].join("|")
+  );
+}
+
+function mergeSavedPlans(
+  existing,
+  incoming
+) {
+  const map =
+    new Map();
+
+  for (
+    const plan of [
+      ...(Array.isArray(
+        existing
+      )
+        ? existing
+        : []),
+
+      ...(Array.isArray(
+        incoming
+      )
+        ? incoming
+        : []),
+    ]
+  ) {
+    if (
+      !plan ||
+      typeof plan !==
+        "object"
+    ) {
+      continue;
+    }
+
+    const key =
+      savedPlanIdentity(
+        plan
+      );
+
+    const previous =
+      map.get(
+        key
+      );
+
+    if (!previous) {
+      map.set(
+        key,
+        plan
+      );
+
+      continue;
+    }
+
+    const previousTime =
+      Date.parse(
+        previous.updatedAt ||
+        previous.savedAt ||
+        0
+      ) || 0;
+
+    const nextTime =
+      Date.parse(
+        plan.updatedAt ||
+        plan.savedAt ||
+        0
+      ) || 0;
+
+    if (
+      nextTime >=
+      previousTime
+    ) {
+      map.set(
+        key,
+        plan
+      );
+    }
+  }
+
+  return [
+    ...map.values(),
+  ];
+}
+
+/*
+  =========================================================
+  SCANNER STATE API
+  =========================================================
+*/
+
+app.get(
+  "/scanner/state",
+
+  async (_req, res) => {
+    try {
+      return res.json(
+        await readScannerState()
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.post(
+  "/scanner/state/migrate",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const incoming =
+        req.body || {};
+
+      const merged = {
+        ...current,
+
+        savedPlans:
+          mergeSavedPlans(
+            current.savedPlans,
+            incoming.savedPlans
+          ),
+
+        savedComparisons: {
+          ...current.savedComparisons,
+
+          ...(
+            incoming.savedComparisons &&
+            typeof incoming.savedComparisons ===
+              "object" &&
+            !Array.isArray(
+              incoming.savedComparisons
+            )
+              ? incoming.savedComparisons
+              : {}
+          ),
+        },
+
+        preferences: {
+          autoRefresh: {
+            ...current.preferences
+              .autoRefresh,
+
+            ...(
+              incoming.preferences
+                ?.autoRefresh &&
+              typeof incoming.preferences
+                .autoRefresh ===
+                "object"
+                ? incoming.preferences
+                    .autoRefresh
+                : {}
+            ),
+          },
+
+          notifications: {
+            ...current.preferences
+              .notifications,
+
+            ...(
+              incoming.preferences
+                ?.notifications &&
+              typeof incoming.preferences
+                .notifications ===
+                "object"
+                ? incoming.preferences
+                    .notifications
+                : {}
+            ),
+          },
+        },
+      };
+
+      return res.json(
+        await writeScannerState(
+          merged
+        )
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/state/saved-plans",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const savedPlans =
+        Array.isArray(
+          req.body
+            ?.savedPlans
+        )
+          ? req.body
+              .savedPlans
+          : [];
+
+      return res.json(
+        await writeScannerState({
+          ...current,
+          savedPlans,
+        })
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/state/saved-comparisons",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const savedComparisons =
+        req.body
+          ?.savedComparisons &&
+        typeof req.body
+          .savedComparisons ===
+          "object" &&
+        !Array.isArray(
+          req.body
+            .savedComparisons
+        )
+          ? req.body
+              .savedComparisons
+          : {};
+
+      return res.json(
+        await writeScannerState({
+          ...current,
+          savedComparisons,
+        })
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/state/preferences",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readScannerState();
+
+      const preferences =
+        req.body
+          ?.preferences &&
+        typeof req.body
+          .preferences ===
+          "object"
+          ? req.body
+              .preferences
+          : {};
+
+      return res.json(
+        await writeScannerState({
+          ...current,
+
+          preferences: {
+            autoRefresh: {
+              ...current.preferences
+                .autoRefresh,
+
+              ...(
+                preferences
+                  .autoRefresh &&
+                typeof preferences
+                  .autoRefresh ===
+                  "object"
+                  ? preferences
+                      .autoRefresh
+                  : {}
+              ),
+            },
+
+            notifications: {
+              ...current.preferences
+                .notifications,
+
+              ...(
+                preferences
+                  .notifications &&
+                typeof preferences
+                  .notifications ===
+                  "object"
+                  ? preferences
+                      .notifications
+                  : {}
+              ),
+            },
+          },
+        })
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
 
 /*
   =========================================================
