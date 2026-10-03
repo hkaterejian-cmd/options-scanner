@@ -2264,6 +2264,404 @@ function selectionFrequencyRows(
   );
 }
 
+
+function buildWalkForwardRobustnessGate({
+  completedFolds,
+  positiveFolds,
+  selectedSummary,
+  byTicker,
+  selectionFrequency,
+}) {
+  const completed =
+    completedFolds.length;
+
+  const positiveFoldRate =
+    completed >
+    0
+      ? (
+          positiveFolds /
+          completed
+        ) *
+        100
+      : null;
+
+  const eligibleTickerRows =
+    byTicker.filter(
+      (row) =>
+        (
+          row.summary
+            ?.trades ??
+          0
+        ) >=
+        5
+    );
+
+  const profitableTickerRows =
+    eligibleTickerRows.filter(
+      (row) =>
+        (
+          row.summary
+            ?.average_return_pct ??
+          0
+        ) >
+        0
+    );
+
+  const profitableTickerRate =
+    eligibleTickerRows.length >
+    0
+      ? (
+          profitableTickerRows.length /
+          eligibleTickerRows.length
+        ) *
+        100
+      : null;
+
+  const totalTickerTrades =
+    byTicker.reduce(
+      (
+        total,
+        row
+      ) =>
+        total +
+        (
+          row.summary
+            ?.trades ??
+          0
+        ),
+      0
+    );
+
+  const largestTickerShare =
+    totalTickerTrades >
+    0
+      ? Math.max(
+          0,
+          ...byTicker.map(
+            (row) =>
+              (
+                (
+                  row.summary
+                    ?.trades ??
+                  0
+                ) /
+                totalTickerTrades
+              ) *
+              100
+          )
+        )
+      : null;
+
+  const dominantSelectionCount =
+    selectionFrequency[0]
+      ?.count ??
+    0;
+
+  const dominantSelectionRate =
+    completed >
+    0
+      ? (
+          dominantSelectionCount /
+          completed
+        ) *
+        100
+      : null;
+
+  const checks = [
+    {
+      id:
+        "oos_trades",
+
+      label:
+        "OOS sample size",
+
+      passed:
+        (
+          selectedSummary
+            ?.trades ??
+          0
+        ) >=
+        100,
+
+      actual:
+        selectedSummary
+          ?.trades ??
+        0,
+
+      threshold:
+        ">= 100 trades",
+    },
+
+    {
+      id:
+        "positive_folds",
+
+      label:
+        "Positive unseen folds",
+
+      passed:
+        positiveFoldRate !==
+          null &&
+        positiveFoldRate >=
+          60,
+
+      actual:
+        positiveFoldRate,
+
+      threshold:
+        ">= 60%",
+    },
+
+    {
+      id:
+        "profit_factor",
+
+      label:
+        "OOS profit factor",
+
+      passed:
+        (
+          selectedSummary
+            ?.profit_factor ??
+          0
+        ) >=
+        1.2,
+
+      actual:
+        selectedSummary
+          ?.profit_factor ??
+        null,
+
+      threshold:
+        ">= 1.20x",
+    },
+
+    {
+      id:
+        "average_return",
+
+      label:
+        "OOS average return",
+
+      passed:
+        (
+          selectedSummary
+            ?.average_return_pct ??
+          0
+        ) >
+        0,
+
+      actual:
+        selectedSummary
+          ?.average_return_pct ??
+        null,
+
+      threshold:
+        "> 0%",
+    },
+
+    {
+      id:
+        "drawdown",
+
+      label:
+        "OOS max drawdown",
+
+      passed:
+        (
+          selectedSummary
+            ?.max_drawdown_pct ??
+          -100
+        ) >=
+        -40,
+
+      actual:
+        selectedSummary
+          ?.max_drawdown_pct ??
+        null,
+
+      threshold:
+        ">= -40%",
+    },
+
+    {
+      id:
+        "ticker_consistency",
+
+      label:
+        "Cross-ticker consistency",
+
+      passed:
+        profitableTickerRate !==
+          null &&
+        profitableTickerRate >=
+          60,
+
+      actual:
+        profitableTickerRate,
+
+      threshold:
+        ">= 60% profitable tickers with 5+ OOS trades",
+    },
+
+    {
+      id:
+        "ticker_concentration",
+
+      label:
+        "Single-ticker concentration",
+
+      passed:
+        largestTickerShare !==
+          null &&
+        largestTickerShare <=
+          30,
+
+      actual:
+        largestTickerShare,
+
+      threshold:
+        "<= 30% of OOS trades from one ticker",
+    },
+
+    {
+      id:
+        "selection_stability",
+
+      label:
+        "Rule-selection stability",
+
+      passed:
+        dominantSelectionRate !==
+          null &&
+        dominantSelectionRate >=
+          30,
+
+      actual:
+        dominantSelectionRate,
+
+      threshold:
+        ">= 30% of folds choose the same rule",
+    },
+  ];
+
+  const passedCount =
+    checks.filter(
+      (check) =>
+        check.passed
+    ).length;
+
+  return {
+    status:
+      passedCount ===
+      checks.length
+        ? "pass"
+        : "fail",
+
+    passed_count:
+      passedCount,
+
+    total_checks:
+      checks.length,
+
+    checks,
+
+    metrics: {
+      positive_fold_rate:
+        positiveFoldRate,
+
+      eligible_ticker_count:
+        eligibleTickerRows.length,
+
+      profitable_ticker_count:
+        profitableTickerRows.length,
+
+      profitable_ticker_rate:
+        profitableTickerRate,
+
+      largest_ticker_trade_share:
+        largestTickerShare,
+
+      dominant_selection_rate:
+        dominantSelectionRate,
+    },
+
+    note:
+      "Passing this research gate does not prove future profitability or authorize live trading. It only means the historical proxy met the configured robustness standards.",
+  };
+}
+
+function walkForwardDatasetToCsv(
+  rows
+) {
+  if (
+    !Array.isArray(
+      rows
+    ) ||
+    rows.length ===
+      0
+  ) {
+    return "";
+  }
+
+  const headers =
+    Object.keys(
+      rows[0]
+    );
+
+  const escape =
+    (value) => {
+      if (
+        value ===
+          null ||
+        value ===
+          undefined
+      ) {
+        return "";
+      }
+
+      const text =
+        String(
+          value
+        );
+
+      if (
+        text.includes(",") ||
+        text.includes('"') ||
+        text.includes("\n")
+      ) {
+        return (
+          '"' +
+          text.replaceAll(
+            '"',
+            '""'
+          ) +
+          '"'
+        );
+      }
+
+      return text;
+    };
+
+  return [
+    headers.join(","),
+
+    ...rows.map(
+      (row) =>
+        headers
+          .map(
+            (header) =>
+              escape(
+                row[
+                  header
+                ]
+              )
+          )
+          .join(",")
+    ),
+  ].join("\n");
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -5021,6 +5419,44 @@ app.post(
           selectedTestTrades.push(
             ...selected
               .test_trades
+              .map(
+                (trade) => ({
+                  ...trade,
+
+                  walk_forward_fold:
+                    foldIndex,
+
+                  selected_rule_id:
+                    selected.id,
+
+                  selected_direction_mode:
+                    selected
+                      .parameters
+                      .direction_mode,
+
+                  selected_hold_sessions:
+                    selected
+                      .parameters
+                      .hold_sessions,
+
+                  selected_rsi_profile:
+                    selected
+                      .parameters
+                      .rsi_profile,
+
+                  selected_required_signals:
+                    selected
+                      .parameters
+                      .required_signals,
+
+                  selected_validation_score:
+                    selected
+                      .validation_score,
+
+                  selected_using_prior_data_only:
+                    true,
+                })
+              )
           );
         }
 
@@ -5152,6 +5588,39 @@ app.post(
             0
         ).length;
 
+      const selectionFrequency =
+        selectionFrequencyRows(
+          selections
+        );
+
+      const selectedOosByTicker =
+        summarizeBySymbol(
+          selectedTestTrades,
+          symbols
+        );
+
+      const baselineOosByTicker =
+        summarizeBySymbol(
+          baselineTestTrades,
+          symbols
+        );
+
+      const selectedOosSummary =
+        summarizeBacktestTrades(
+          selectedTestTrades
+        );
+
+      const robustnessGate =
+        buildWalkForwardRobustnessGate({
+          completedFolds,
+          positiveFolds,
+          selectedSummary:
+            selectedOosSummary,
+          byTicker:
+            selectedOosByTicker,
+          selectionFrequency,
+        });
+
       return res.json({
         generated_at:
           new Date().toISOString(),
@@ -5222,9 +5691,7 @@ app.post(
               : null,
 
           selected_oos:
-            summarizeBacktestTrades(
-              selectedTestTrades
-            ),
+            selectedOosSummary,
 
           baseline_oos:
             summarizeBacktestTrades(
@@ -5232,27 +5699,105 @@ app.post(
             ),
         },
 
+        robustness_gate:
+          robustnessGate,
+
         selection_frequency:
-          selectionFrequencyRows(
-            selections
-          ),
+          selectionFrequency,
 
         selected_oos_by_ticker:
-          summarizeBySymbol(
-            selectedTestTrades,
-            symbols
-          ),
+          selectedOosByTicker,
 
         baseline_oos_by_ticker:
-          summarizeBySymbol(
-            baselineTestTrades,
-            symbols
-          ),
+          baselineOosByTicker,
 
         folds,
 
         selected_oos_trades:
           selectedTestTrades,
+
+        oos_learning_dataset:
+          selectedTestTrades.map(
+            (trade) => ({
+              ticker:
+                trade.symbol,
+
+              fold:
+                trade.walk_forward_fold,
+
+              signal_time:
+                trade.signal_time,
+
+              entry_time:
+                trade.entry_time,
+
+              exit_time:
+                trade.exit_time,
+
+              signal:
+                trade.signal,
+
+              selected_rule_id:
+                trade.selected_rule_id,
+
+              selected_direction_mode:
+                trade.selected_direction_mode,
+
+              selected_hold_sessions:
+                trade.selected_hold_sessions,
+
+              selected_rsi_profile:
+                trade.selected_rsi_profile,
+
+              selected_required_signals:
+                trade.selected_required_signals,
+
+              selected_validation_score:
+                trade.selected_validation_score,
+
+              selected_using_prior_data_only:
+                trade.selected_using_prior_data_only,
+
+              rsi:
+                trade.rsi,
+
+              macd_histogram:
+                trade.macd_histogram,
+
+              signal_change_pct:
+                trade.signal_change_pct,
+
+              bullish_score:
+                trade.bullish_score,
+
+              bearish_score:
+                trade.bearish_score,
+
+              entry_open:
+                trade.entry_open,
+
+              exit_close:
+                trade.exit_close,
+
+              hold_sessions:
+                trade.hold_sessions,
+
+              friction_pct:
+                trade.friction_pct,
+
+              net_return_pct:
+                trade.net_return_pct,
+
+              mfe_pct:
+                trade.mfe_pct,
+
+              mae_pct:
+                trade.mae_pct,
+
+              favorable:
+                trade.favorable,
+            })
+          ),
       });
 
     } catch (error) {
