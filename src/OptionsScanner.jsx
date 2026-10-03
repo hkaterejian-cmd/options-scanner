@@ -71,6 +71,73 @@ function formatSignedPercent(value, digits = 2) {
   return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
 }
 
+function percentChangeFromSaved(savedValue, currentValue) {
+  const saved =
+    toNumber(
+      savedValue
+    );
+
+  const current =
+    toNumber(
+      currentValue
+    );
+
+  if (
+    saved === null ||
+    current === null ||
+    saved === 0
+  ) {
+    return null;
+  }
+
+  return (
+    (
+      current -
+      saved
+    ) /
+    saved
+  ) * 100;
+}
+
+function numericDifference(savedValue, currentValue) {
+  const saved =
+    toNumber(
+      savedValue
+    );
+
+  const current =
+    toNumber(
+      currentValue
+    );
+
+  if (
+    saved === null ||
+    current === null
+  ) {
+    return null;
+  }
+
+  return (
+    current -
+    saved
+  );
+}
+
+function formatSignedNumber(value, digits = 2) {
+  const n =
+    toNumber(
+      value
+    );
+
+  if (n === null) {
+    return "—";
+  }
+
+  return `${n >= 0 ? "+" : ""}${n.toFixed(
+    digits
+  )}`;
+}
+
 function formatCompact(value) {
   const n = toNumber(value);
 
@@ -1588,7 +1655,7 @@ function SavedPlansSummary({
           </div>
 
           <div className="mt-1 text-[10px] text-zinc-500">
-            Snapshot information from the plans saved inside each ticker.
+            Saved snapshots with current stock, RSI, MACD, breakeven, and invalidation tracking. Open a ticker for current option-spread, OI-wall, and gamma tracking.
           </div>
         </div>
 
@@ -1750,6 +1817,166 @@ function SavedPlansSummary({
                             }
                             color="text-emerald-300"
                           />
+                        </div>
+
+                        <div className="mt-3 rounded-lg border border-sky-500/15 bg-sky-500/[0.025] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-[9px] uppercase tracking-widest text-sky-400">
+                              Current tracking
+                            </div>
+
+                            <div className="text-[9px] text-zinc-600">
+                              {liveData
+                                ? "Live scanner snapshot"
+                                : "Ticker not loaded"}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <Stat
+                              label="Stock Since Saved"
+                              value={
+                                liveData
+                                  ? formatSignedPercent(
+                                      percentChangeFromSaved(
+                                        plan.savedSpot,
+                                        liveData.price
+                                      )
+                                    )
+                                  : "—"
+                              }
+                              color="text-sky-300"
+                            />
+
+                            <Stat
+                              label="RSI Change"
+                              value={
+                                liveData
+                                  ? `${formatSignedNumber(
+                                      numericDifference(
+                                        plan.savedRsi,
+                                        liveData.rsi
+                                      ),
+                                      1
+                                    )} pts`
+                                  : "—"
+                              }
+                            />
+
+                            <Stat
+                              label="MACD Hist Change"
+                              value={
+                                liveData
+                                  ? formatSignedNumber(
+                                      numericDifference(
+                                        plan.savedMacdHistogram,
+                                        liveData.macd?.histogram
+                                      ),
+                                      3
+                                    )
+                                  : "—"
+                              }
+                            />
+
+                            <Stat
+                              label="Spot vs Breakeven"
+                              value={
+                                liveData
+                                  ? formatSignedPercent(
+                                      percentChangeFromSaved(
+                                        plan.breakeven,
+                                        liveData.price
+                                      )
+                                    )
+                                  : "—"
+                              }
+                            />
+                          </div>
+
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <div className="rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
+                              <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                                Saved → Current
+                              </div>
+
+                              <div className="mt-1 text-[10px] text-zinc-400">
+                                Spot{" "}
+                                <span className="font-mono text-zinc-200">
+                                  {formatMoney(
+                                    plan.savedSpot
+                                  )}{" "}
+                                  →{" "}
+                                  {liveData
+                                    ? formatMoney(
+                                        liveData.price
+                                      )
+                                    : "—"}
+                                </span>
+                                {" · "}
+                                RSI{" "}
+                                <span className="font-mono text-zinc-200">
+                                  {plan.savedRsi !==
+                                    null &&
+                                  plan.savedRsi !==
+                                    undefined
+                                    ? Number(
+                                        plan.savedRsi
+                                      ).toFixed(
+                                        1
+                                      )
+                                    : "—"}{" "}
+                                  →{" "}
+                                  {liveData?.rsi !==
+                                    null &&
+                                  liveData?.rsi !==
+                                    undefined
+                                    ? Number(
+                                        liveData.rsi
+                                      ).toFixed(
+                                        1
+                                      )
+                                    : "—"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="rounded border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
+                              <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                                Invalidation Reference
+                              </div>
+
+                              <div className="mt-1 font-mono text-[10px] text-amber-300">
+                                {plan.invalidationPrice !==
+                                  null &&
+                                plan.invalidationPrice !==
+                                  undefined
+                                  ? `${formatMoney(
+                                      plan.invalidationPrice
+                                    )} · ${
+                                      liveData
+                                        ? `${Math.abs(
+                                            percentChangeFromSaved(
+                                              liveData.price,
+                                              plan.invalidationPrice
+                                            ) ?? 0
+                                          ).toFixed(
+                                            2
+                                          )}% ${
+                                            Number(
+                                              plan.invalidationPrice
+                                            ) >=
+                                            Number(
+                                              liveData.price
+                                            )
+                                              ? "above"
+                                              : "below"
+                                          } spot`
+                                        : "ticker not loaded"
+                                    }`
+                                  : "Not set"}
+                              </div>
+                            </div>
+                          </div>
                         </div>
 
                         {plan.notes && (
