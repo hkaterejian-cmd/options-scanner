@@ -5123,6 +5123,1000 @@ function BacktestResearchLabPanel({
   );
 }
 
+
+/*
+  =========================================================
+  WALK-FORWARD LAB
+  =========================================================
+*/
+
+function WalkForwardLabPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const summary =
+    result?.summary ??
+    {};
+
+  const selectedOos =
+    summary.selected_oos ??
+    {};
+
+  const baselineOos =
+    summary.baseline_oos ??
+    {};
+
+  const folds =
+    Array.isArray(
+      result?.folds
+    )
+      ? result.folds
+      : [];
+
+  const selectionFrequency =
+    Array.isArray(
+      result?.selection_frequency
+    )
+      ? result.selection_frequency
+      : [];
+
+  const byTicker =
+    Array.isArray(
+      result?.selected_oos_by_ticker
+    )
+      ? result.selected_oos_by_ticker
+      : [];
+
+  const pct =
+    (
+      value,
+      digits = 2
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const plainPct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function directionLabel(
+    value
+  ) {
+    if (
+      value ===
+      "bullish_only"
+    ) {
+      return "Bullish only";
+    }
+
+    if (
+      value ===
+      "bearish_only"
+    ) {
+      return "Bearish only";
+    }
+
+    return "Both";
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400">
+              Walk-forward research
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Re-select on past data, then test on the next unseen block
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Each fold chooses a rule from training + validation history only. The next test window remains unseen until after selection.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            Expanding walk-forward · underlying proxy
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Scope
+            </div>
+
+            <select
+              value={
+                settings.scope
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    scope:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value="selected">
+                One ticker
+              </option>
+
+              <option value="all">
+                All scanner tickers
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              disabled={
+                settings.scope ===
+                "all"
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white disabled:opacity-40"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Lookback
+            </div>
+
+            <select
+              value={
+                settings.lookbackDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    lookbackDays:
+                      Number(
+                        event.target.value
+                      ),
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value={730}>
+                2 years
+              </option>
+
+              <option value={1095}>
+                3 years
+              </option>
+
+              <option value={1460}>
+                4 years
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Initial train days
+            </div>
+
+            <input
+              type="number"
+              min="180"
+              step="30"
+              value={
+                settings.trainDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    trainDays:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Validation days
+            </div>
+
+            <input
+              type="number"
+              min="30"
+              step="15"
+              value={
+                settings.validationDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    validationDays:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Test days
+            </div>
+
+            <input
+              type="number"
+              min="20"
+              step="10"
+              value={
+                settings.testDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    testDays:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Friction bps
+            </div>
+
+            <input
+              type="number"
+              min="0"
+              max="500"
+              step="1"
+              value={
+                settings.costBps
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    costBps:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !tickers.length
+              }
+              className="w-full rounded border border-emerald-400/50 bg-emerald-400/10 px-4 py-2.5 text-[10px] font-bold text-emerald-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {loading
+                ? "RUNNING WALK-FORWARD..."
+                : connected
+                  ? "RUN WALK-FORWARD"
+                  : "CONNECT ROBINHOOD"}
+            </button>
+          </div>
+        </div>
+
+        <label className="mt-3 flex items-center gap-2 text-[9px] text-zinc-500">
+          <input
+            type="checkbox"
+            checked={
+              settings.nonOverlapping
+            }
+            onChange={(
+              event
+            ) =>
+              setSettings(
+                (current) => ({
+                  ...current,
+
+                  nonOverlapping:
+                    event.target.checked,
+                })
+              )
+            }
+          />
+
+          Prevent overlapping same-ticker proxy trades.
+        </label>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Walk-forward error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.selection}{" "}
+              {result.methodology?.rolling}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.caution}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              {[
+                {
+                  label:
+                    "Folds",
+
+                  value:
+                    summary.completed_folds ??
+                    0,
+
+                  color:
+                    "text-white",
+                },
+
+                {
+                  label:
+                    "Positive folds",
+
+                  value:
+                    plainPct(
+                      summary.positive_test_fold_rate
+                    ),
+
+                  color:
+                    "text-sky-300",
+                },
+
+                {
+                  label:
+                    "OOS trades",
+
+                  value:
+                    selectedOos.trades ??
+                    0,
+
+                  color:
+                    "text-white",
+                },
+
+                {
+                  label:
+                    "OOS avg return",
+
+                  value:
+                    pct(
+                      selectedOos.average_return_pct
+                    ),
+
+                  color:
+                    toNumber(
+                      selectedOos.average_return_pct
+                    ) >
+                    0
+                      ? "text-emerald-300"
+                      : "text-red-300",
+                },
+
+                {
+                  label:
+                    "OOS compounded",
+
+                  value:
+                    pct(
+                      selectedOos.compounded_return_pct
+                    ),
+
+                  color:
+                    toNumber(
+                      selectedOos.compounded_return_pct
+                    ) >
+                    0
+                      ? "text-emerald-300"
+                      : "text-red-300",
+                },
+
+                {
+                  label:
+                    "OOS profit factor",
+
+                  value:
+                    ratio(
+                      selectedOos.profit_factor
+                    ),
+
+                  color:
+                    "text-amber-300",
+                },
+
+                {
+                  label:
+                    "OOS max DD",
+
+                  value:
+                    pct(
+                      selectedOos.max_drawdown_pct
+                    ),
+
+                  color:
+                    "text-red-300",
+                },
+
+                {
+                  label:
+                    "Baseline OOS avg",
+
+                  value:
+                    pct(
+                      baselineOos.average_return_pct
+                    ),
+
+                  color:
+                    "text-violet-300",
+                },
+              ].map(
+                (item) => (
+                  <div
+                    key={
+                      item.label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {item.label}
+                    </div>
+
+                    <div
+                      className={
+                        "mt-1 font-mono text-sm font-bold " +
+                        item.color
+                      }
+                    >
+                      {item.value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.025] p-3">
+                <div className="text-[9px] uppercase tracking-widest text-emerald-400">
+                  Selected-rule unseen performance
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Stat
+                    label="Win Rate"
+                    value={plainPct(
+                      selectedOos.win_rate_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Avg Return"
+                    value={pct(
+                      selectedOos.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Compounded"
+                    value={pct(
+                      selectedOos.compounded_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Profit Factor"
+                    value={ratio(
+                      selectedOos.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Max DD"
+                    value={pct(
+                      selectedOos.max_drawdown_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Avg Hold"
+                    value={
+                      toNumber(
+                        selectedOos.average_hold_sessions
+                      ) !==
+                      null
+                        ? Number(
+                            selectedOos.average_hold_sessions
+                          ).toFixed(
+                            1
+                          )
+                        : "—"
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.025] p-3">
+                <div className="text-[9px] uppercase tracking-widest text-violet-400">
+                  Fixed baseline unseen performance
+                </div>
+
+                <div className="mt-1 text-[9px] text-zinc-600">
+                  Both directions · 5 sessions · RSI 55/45 · 2/3 signals
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Stat
+                    label="Trades"
+                    value={
+                      baselineOos.trades ??
+                      0
+                    }
+                  />
+
+                  <Stat
+                    label="Win Rate"
+                    value={plainPct(
+                      baselineOos.win_rate_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Avg Return"
+                    value={pct(
+                      baselineOos.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Compounded"
+                    value={pct(
+                      baselineOos.compounded_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Profit Factor"
+                    value={ratio(
+                      baselineOos.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Max DD"
+                    value={pct(
+                      baselineOos.max_drawdown_pct
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Fold-by-fold unseen results
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1500px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-right">
+                        Fold
+                      </th>
+
+                      <th className="px-3 py-2 text-left">
+                        Test Window
+                      </th>
+
+                      <th className="px-3 py-2 text-left">
+                        Selected
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test DD
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Baseline Avg
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {folds.map(
+                      (fold) => {
+                        const candidate =
+                          fold.selected_candidate;
+
+                        const params =
+                          candidate?.parameters;
+
+                        return (
+                          <tr
+                            key={
+                              fold.fold
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="px-3 py-2 text-right">
+                              {fold.fold}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {new Date(
+                                fold.test_start
+                              ).toLocaleDateString()}{" "}
+                              →{" "}
+                              {new Date(
+                                fold.test_end
+                              ).toLocaleDateString()}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {candidate
+                                ? directionLabel(
+                                    params?.direction_mode
+                                  ) +
+                                  " · " +
+                                  params?.hold_sessions +
+                                  "d · RSI " +
+                                  params?.rsi_profile +
+                                  " · " +
+                                  params?.required_signals +
+                                  "/3"
+                                : "No eligible candidate"}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {candidate?.validation?.trades ?? 0}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                candidate?.validation?.average_return_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {ratio(
+                                candidate?.validation?.profit_factor
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {candidate?.test?.trades ?? 0}
+                            </td>
+
+                            <td
+                              className={
+                                "px-3 py-2 text-right " +
+                                (
+                                  toNumber(
+                                    candidate?.test?.average_return_pct
+                                  ) >
+                                  0
+                                    ? "text-emerald-300"
+                                    : "text-red-300"
+                                )
+                              }
+                            >
+                              {pct(
+                                candidate?.test?.average_return_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {ratio(
+                                candidate?.test?.profit_factor
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-red-300">
+                              {pct(
+                                candidate?.test?.max_drawdown_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-violet-300">
+                              {pct(
+                                fold.baseline_test?.average_return_pct
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Strategy selection frequency
+                </div>
+
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="py-1.5 text-left">
+                          Strategy
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          Folds
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {selectionFrequency.map(
+                        (row) => (
+                          <tr
+                            key={
+                              row.id
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="py-1.5 text-left">
+                              {directionLabel(
+                                row.parameters?.direction_mode
+                              )}{" "}
+                              · {row.parameters?.hold_sessions}d · RSI {row.parameters?.rsi_profile} · {row.parameters?.required_signals}/3
+                            </td>
+
+                            <td className="py-1.5 text-right text-fuchsia-300">
+                              {row.count}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Unseen selected-rule performance by ticker
+                </div>
+
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="py-1.5 text-left">
+                          Ticker
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          N
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          Win%
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          Avg
+                        </th>
+
+                        <th className="py-1.5 text-right">
+                          PF
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {byTicker.map(
+                        (row) => (
+                          <tr
+                            key={
+                              row.symbol
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="py-1.5 text-left text-white">
+                              {row.symbol}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {row.summary?.trades ?? 0}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {plainPct(
+                                row.summary?.win_rate_pct
+                              )}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {pct(
+                                row.summary?.average_return_pct
+                              )}
+                            </td>
+
+                            <td className="py-1.5 text-right">
+                              {ratio(
+                                row.summary?.profit_factor
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              Walk-forward results are stronger evidence than a single train/validation/test split, but they are still historical proxy results. We should require repeated positive unseen folds, adequate trade counts, manageable drawdown, and cross-ticker consistency before treating a rule as a candidate for live review.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -5585,6 +6579,60 @@ export default function OptionsScanner() {
 
       lookbackDays:
         730,
+
+      costBps:
+        10,
+
+      nonOverlapping:
+        true,
+    });
+
+  const [
+    walkForwardOpen,
+    setWalkForwardOpen,
+  ] =
+    useState(false);
+
+  const [
+    walkForwardResult,
+    setWalkForwardResult,
+  ] =
+    useState(null);
+
+  const [
+    walkForwardLoading,
+    setWalkForwardLoading,
+  ] =
+    useState(false);
+
+  const [
+    walkForwardError,
+    setWalkForwardError,
+  ] =
+    useState("");
+
+  const [
+    walkForwardSettings,
+    setWalkForwardSettings,
+  ] =
+    useState({
+      scope:
+        "all",
+
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        1095,
+
+      trainDays:
+        365,
+
+      validationDays:
+        90,
+
+      testDays:
+        60,
 
       costBps:
         10,
@@ -6451,6 +7499,100 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runWalkForward =
+    useCallback(
+      async () => {
+        setWalkForwardLoading(
+          true
+        );
+
+        setWalkForwardError(
+          ""
+        );
+
+        try {
+          const symbols =
+            walkForwardSettings.scope ===
+            "all"
+              ? tickers
+              : [
+                  walkForwardSettings.symbol,
+                ];
+
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/walk-forward",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbols,
+
+                    lookbackDays:
+                      Number(
+                        walkForwardSettings.lookbackDays
+                      ),
+
+                    trainDays:
+                      Number(
+                        walkForwardSettings.trainDays
+                      ),
+
+                    validationDays:
+                      Number(
+                        walkForwardSettings.validationDays
+                      ),
+
+                    testDays:
+                      Number(
+                        walkForwardSettings.testDays
+                      ),
+
+                    costBps:
+                      Number(
+                        walkForwardSettings.costBps
+                      ) ||
+                      0,
+
+                    nonOverlapping:
+                      !!walkForwardSettings.nonOverlapping,
+                  }),
+              }
+            );
+
+          setWalkForwardResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setWalkForwardError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setWalkForwardLoading(
+            false
+          );
+        }
+      },
+      [
+        walkForwardSettings,
+        tickers,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -7125,6 +8267,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setWalkForwardOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                walkForwardOpen
+                  ? "rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-mono text-emerald-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Walk-Forward
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -7641,6 +8800,37 @@ Do not invent missing values.`
           }
           onRun={
             runBacktestResearch
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* WALK-FORWARD LAB */}
+
+      {walkForwardOpen && (
+        <WalkForwardLabPanel
+          tickers={
+            tickers
+          }
+          settings={
+            walkForwardSettings
+          }
+          setSettings={
+            setWalkForwardSettings
+          }
+          result={
+            walkForwardResult
+          }
+          loading={
+            walkForwardLoading
+          }
+          error={
+            walkForwardError
+          }
+          onRun={
+            runWalkForward
           }
           connected={
             robinhoodStatus.connected
