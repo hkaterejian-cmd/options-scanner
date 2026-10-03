@@ -3219,6 +3219,1068 @@ function TradeAnalyticsPanel({
   );
 }
 
+
+/*
+  =========================================================
+  HISTORICAL BACKTEST
+  =========================================================
+*/
+
+function HistoricalBacktestPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const summary =
+    result?.summary ??
+    {};
+
+  const trades =
+    Array.isArray(
+      result?.trades
+    )
+      ? result.trades
+      : [];
+
+  const chronological =
+    result?.chronological_evaluation ??
+    {};
+
+  const pct =
+    (
+      value,
+      digits = 2
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const plainPct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  const curve =
+    Array.isArray(
+      result?.equity_curve
+    )
+      ? result.equity_curve
+      : [];
+
+  const chartWidth =
+    920;
+
+  const chartHeight =
+    220;
+
+  const chartPad =
+    28;
+
+  const curveValues =
+    curve.map(
+      (point) =>
+        toNumber(
+          point?.cumulative_return_pct
+        ) ??
+        0
+    );
+
+  const curveMin =
+    curveValues.length
+      ? Math.min(
+          0,
+          ...curveValues
+        )
+      : 0;
+
+  const curveMax =
+    curveValues.length
+      ? Math.max(
+          0,
+          ...curveValues
+        )
+      : 1;
+
+  const curveRange =
+    Math.max(
+      0.0001,
+      curveMax -
+      curveMin
+    );
+
+  const curvePath =
+    curve
+      .map(
+        (
+          point,
+          index
+        ) => {
+          const x =
+            chartPad +
+            (
+              index /
+              Math.max(
+                1,
+                curve.length -
+                  1
+              )
+            ) *
+              (
+                chartWidth -
+                chartPad *
+                  2
+              );
+
+          const value =
+            toNumber(
+              point?.cumulative_return_pct
+            ) ??
+            0;
+
+          const y =
+            chartHeight -
+            chartPad -
+            (
+              (
+                value -
+                curveMin
+              ) /
+              curveRange
+            ) *
+              (
+                chartHeight -
+                chartPad *
+                  2
+              );
+
+          return (
+            index ===
+            0
+              ? "M "
+              : "L "
+          ) +
+          x.toFixed(
+            1
+          ) +
+          " " +
+          y.toFixed(
+            1
+          );
+        }
+      )
+      .join(
+        " "
+      );
+
+  const zeroY =
+    chartHeight -
+    chartPad -
+    (
+      (
+        0 -
+        curveMin
+      ) /
+      curveRange
+    ) *
+      (
+        chartHeight -
+        chartPad *
+          2
+      );
+
+  const splits = [
+    {
+      key:
+        "train",
+
+      label:
+        "Early 60%",
+    },
+
+    {
+      key:
+        "validation",
+
+      label:
+        "Middle 20%",
+    },
+
+    {
+      key:
+        "test",
+
+      label:
+        "Recent 20%",
+    },
+  ];
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-blue-500/20 bg-blue-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-blue-400">
+              Historical backtest
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Scanner momentum rule · historical directional proxy
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Real Robinhood daily stock bars, RSI(14), and MACD(12,26,9). Signals are evaluated after the close and entered at the next regular-session open.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            Underlying proxy · not options P/L
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Lookback
+            </div>
+
+            <select
+              value={
+                settings.lookbackDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    lookbackDays:
+                      Number(
+                        event.target.value
+                      ),
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value={180}>
+                6 months
+              </option>
+
+              <option value={365}>
+                1 year
+              </option>
+
+              <option value={730}>
+                2 years
+              </option>
+
+              <option value={1095}>
+                3 years
+              </option>
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Hold sessions
+            </div>
+
+            <select
+              value={
+                settings.holdDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    holdDays:
+                      Number(
+                        event.target.value
+                      ),
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {[1, 3, 5, 10, 20].map(
+                (days) => (
+                  <option
+                    key={
+                      days
+                    }
+                    value={
+                      days
+                    }
+                  >
+                    {days}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Friction bps
+            </div>
+
+            <input
+              type="number"
+              min="0"
+              max="500"
+              step="1"
+              value={
+                settings.costBps
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    costBps:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <input
+              type="checkbox"
+              checked={
+                settings.nonOverlapping
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    nonOverlapping:
+                      event.target.checked,
+                  })
+                )
+              }
+            />
+
+            <span>
+              <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                No overlap
+              </div>
+
+              <div className="mt-1 text-[9px] text-zinc-600">
+                One active same-ticker proxy trade.
+              </div>
+            </span>
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !settings.symbol
+              }
+              className="w-full rounded border border-blue-400/50 bg-blue-400/10 px-4 py-2.5 text-[10px] font-bold text-blue-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {loading
+                ? "RUNNING..."
+                : connected
+                  ? "RUN BACKTEST"
+                  : "CONNECT ROBINHOOD"}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Backtest error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              <span className="font-bold text-amber-300">
+                Methodology:
+              </span>{" "}
+              {result.methodology?.signal_rule}{" "}
+              {result.methodology?.execution}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.instrument}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              {[
+                {
+                  label:
+                    "Trades",
+
+                  value:
+                    summary.trades ??
+                    0,
+
+                  color:
+                    "text-white",
+                },
+
+                {
+                  label:
+                    "Win rate",
+
+                  value:
+                    plainPct(
+                      summary.win_rate_pct
+                    ),
+
+                  color:
+                    "text-sky-300",
+                },
+
+                {
+                  label:
+                    "Avg return",
+
+                  value:
+                    pct(
+                      summary.average_return_pct
+                    ),
+
+                  color:
+                    toNumber(
+                      summary.average_return_pct
+                    ) >
+                    0
+                      ? "text-emerald-300"
+                      : "text-red-300",
+                },
+
+                {
+                  label:
+                    "Compounded",
+
+                  value:
+                    pct(
+                      summary.compounded_return_pct
+                    ),
+
+                  color:
+                    toNumber(
+                      summary.compounded_return_pct
+                    ) >
+                    0
+                      ? "text-emerald-300"
+                      : "text-red-300",
+                },
+
+                {
+                  label:
+                    "Profit factor",
+
+                  value:
+                    ratio(
+                      summary.profit_factor
+                    ),
+
+                  color:
+                    "text-amber-300",
+                },
+
+                {
+                  label:
+                    "Max drawdown",
+
+                  value:
+                    pct(
+                      summary.max_drawdown_pct
+                    ),
+
+                  color:
+                    "text-red-300",
+                },
+
+                {
+                  label:
+                    "Avg MFE",
+
+                  value:
+                    pct(
+                      summary.average_mfe_pct
+                    ),
+
+                  color:
+                    "text-emerald-300",
+                },
+
+                {
+                  label:
+                    "Avg MAE",
+
+                  value:
+                    pct(
+                      summary.average_mae_pct
+                    ),
+
+                  color:
+                    "text-red-300",
+                },
+              ].map(
+                (item) => (
+                  <div
+                    key={
+                      item.label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {item.label}
+                    </div>
+
+                    <div
+                      className={
+                        "mt-1 font-mono text-sm font-bold " +
+                        item.color
+                      }
+                    >
+                      {item.value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {[
+                {
+                  label:
+                    "Bullish signals",
+
+                  data:
+                    result.by_direction?.bullish,
+
+                  color:
+                    "text-emerald-300",
+                },
+
+                {
+                  label:
+                    "Bearish signals",
+
+                  data:
+                    result.by_direction?.bearish,
+
+                  color:
+                    "text-red-300",
+                },
+              ].map(
+                (side) => (
+                  <div
+                    key={
+                      side.label
+                    }
+                    className="rounded-xl border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div
+                      className={
+                        "text-[9px] uppercase tracking-widest " +
+                        side.color
+                      }
+                    >
+                      {side.label}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Stat
+                        label="Trades"
+                        value={
+                          side.data?.trades ??
+                          0
+                        }
+                      />
+
+                      <Stat
+                        label="Win Rate"
+                        value={plainPct(
+                          side.data?.win_rate_pct
+                        )}
+                      />
+
+                      <Stat
+                        label="Avg Return"
+                        value={pct(
+                          side.data?.average_return_pct
+                        )}
+                      />
+
+                      <Stat
+                        label="Compounded"
+                        value={pct(
+                          side.data?.compounded_return_pct
+                        )}
+                      />
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Sequential proxy equity curve
+                  </div>
+
+                  <div className="mt-1 text-[9px] text-zinc-600">
+                    Each signal contributes its net directional return sequentially. This is not account equity.
+                  </div>
+                </div>
+
+                <div className="font-mono text-[10px] text-zinc-500">
+                  {result.symbol} · {result.parameters?.hold_sessions} sessions · {result.parameters?.cost_bps} bps
+                </div>
+              </div>
+
+              {curve.length >
+              0 ? (
+                <div className="mt-3 overflow-x-auto">
+                  <svg
+                    viewBox={
+                      "0 0 " +
+                      chartWidth +
+                      " " +
+                      chartHeight
+                    }
+                    className="h-[220px] min-w-[760px] w-full"
+                  >
+                    <line
+                      x1={
+                        chartPad
+                      }
+                      x2={
+                        chartWidth -
+                        chartPad
+                      }
+                      y1={
+                        zeroY
+                      }
+                      y2={
+                        zeroY
+                      }
+                      stroke="currentColor"
+                      className="text-zinc-700"
+                      strokeDasharray="5 5"
+                    />
+
+                    <path
+                      d={
+                        curvePath
+                      }
+                      fill="none"
+                      stroke="currentColor"
+                      className={
+                        toNumber(
+                          summary.compounded_return_pct
+                        ) >=
+                        0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                      strokeWidth="3"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              ) : (
+                <div className="mt-3 rounded border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+                  No qualifying historical signals were generated.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-violet-400">
+                Chronological stability check
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                {splits.map(
+                  (split) => {
+                    const splitSummary =
+                      chronological[
+                        split.key
+                      ]?.summary ??
+                      {};
+
+                    return (
+                      <div
+                        key={
+                          split.key
+                        }
+                        className="rounded-xl border border-violet-500/15 bg-violet-500/[0.02] p-3"
+                      >
+                        <div className="text-[10px] font-bold text-violet-300">
+                          {split.label}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <Stat
+                            label="Trades"
+                            value={
+                              splitSummary.trades ??
+                              0
+                            }
+                          />
+
+                          <Stat
+                            label="Win Rate"
+                            value={plainPct(
+                              splitSummary.win_rate_pct
+                            )}
+                          />
+
+                          <Stat
+                            label="Avg Return"
+                            value={pct(
+                              splitSummary.average_return_pct
+                            )}
+                          />
+
+                          <Stat
+                            label="Compounded"
+                            value={pct(
+                              splitSummary.compounded_return_pct
+                            )}
+                          />
+
+                          <Stat
+                            label="Max DD"
+                            value={pct(
+                              splitSummary.max_drawdown_pct
+                            )}
+                          />
+
+                          <Stat
+                            label="Profit Factor"
+                            value={ratio(
+                              splitSummary.profit_factor
+                            )}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                )}
+              </div>
+
+              <div className="mt-2 text-[9px] text-zinc-600">
+                This checks the fixed rule across early, middle, and recent history. The later model phase will use genuine walk-forward fitting where each model sees only earlier data.
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Historical signal trades
+                </div>
+
+                <div className="text-[9px] text-zinc-600">
+                  {trades.length} simulated signals
+                </div>
+              </div>
+
+              {trades.length >
+              0 ? (
+                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                  <table className="min-w-[1200px] w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="px-3 py-2 text-left">
+                          Signal
+                        </th>
+
+                        <th className="px-3 py-2 text-left">
+                          Signal
+                        </th>
+
+                        <th className="px-3 py-2 text-left">
+                          Entry
+                        </th>
+
+                        <th className="px-3 py-2 text-left">
+                          Exit
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          RSI
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MACD Hist
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Entry Px
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Exit Px
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Net Return
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MFE
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          MAE
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {[...trades]
+                        .slice(
+                          -30
+                        )
+                        .reverse()
+                        .map(
+                          (trade) => (
+                            <tr
+                              key={
+                                trade.id
+                              }
+                              className="border-b border-zinc-900"
+                            >
+                              <td
+                                className={
+                                  "px-3 py-2 text-left font-bold " +
+                                  (
+                                    trade.signal ===
+                                    "bullish"
+                                      ? "text-emerald-300"
+                                      : "text-red-300"
+                                  )
+                                }
+                              >
+                                {String(
+                                  trade.signal
+                                ).toUpperCase()}
+                              </td>
+
+                              <td className="px-3 py-2 text-left">
+                                {new Date(
+                                  trade.signal_time
+                                ).toLocaleDateString()}
+                              </td>
+
+                              <td className="px-3 py-2 text-left">
+                                {new Date(
+                                  trade.entry_time
+                                ).toLocaleDateString()}
+                              </td>
+
+                              <td className="px-3 py-2 text-left">
+                                {new Date(
+                                  trade.exit_time
+                                ).toLocaleDateString()}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {toNumber(
+                                  trade.rsi
+                                ) !==
+                                null
+                                  ? Number(
+                                      trade.rsi
+                                    ).toFixed(
+                                      1
+                                    )
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatSignedNumber(
+                                  trade.macd_histogram,
+                                  3
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatMoney(
+                                  trade.entry_open
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right">
+                                {formatMoney(
+                                  trade.exit_close
+                                )}
+                              </td>
+
+                              <td
+                                className={
+                                  "px-3 py-2 text-right font-bold " +
+                                  (
+                                    trade.net_return_pct >
+                                    0
+                                      ? "text-emerald-300"
+                                      : trade.net_return_pct <
+                                          0
+                                        ? "text-red-300"
+                                        : ""
+                                  )
+                                }
+                              >
+                                {pct(
+                                  trade.net_return_pct
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right text-emerald-300">
+                                {pct(
+                                  trade.mfe_pct
+                                )}
+                              </td>
+
+                              <td className="px-3 py-2 text-right text-red-300">
+                                {pct(
+                                  trade.mae_pct
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+                  No trades generated for these settings.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              This backtest avoids same-day lookahead by entering on the next session open. It still does not replay historical option premiums, IV, Greeks, option bid/ask spreads, assignment, or actual debit-spread fills. Use it to test directional signal stability before the historical-option replay layer.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -3598,6 +4660,51 @@ export default function OptionsScanner() {
     setTradeAnalyticsError,
   ] =
     useState("");
+
+  const [
+    backtestOpen,
+    setBacktestOpen,
+  ] =
+    useState(false);
+
+  const [
+    backtestResult,
+    setBacktestResult,
+  ] =
+    useState(null);
+
+  const [
+    backtestLoading,
+    setBacktestLoading,
+  ] =
+    useState(false);
+
+  const [
+    backtestError,
+    setBacktestError,
+  ] =
+    useState("");
+
+  const [
+    backtestSettings,
+    setBacktestSettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        365,
+
+      holdDays:
+        5,
+
+      costBps:
+        0,
+
+      nonOverlapping:
+        true,
+    });
 
   const scanInProgressRef =
     useRef(false);
@@ -4302,6 +5409,82 @@ export default function OptionsScanner() {
     refreshTradeAnalytics,
   ]);
 
+  const runHistoricalBacktest =
+    useCallback(
+      async () => {
+        setBacktestLoading(
+          true
+        );
+
+        setBacktestError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/backtest",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      backtestSettings.symbol,
+
+                    lookbackDays:
+                      Number(
+                        backtestSettings.lookbackDays
+                      ),
+
+                    holdDays:
+                      Number(
+                        backtestSettings.holdDays
+                      ),
+
+                    costBps:
+                      Number(
+                        backtestSettings.costBps
+                      ) ||
+                      0,
+
+                    nonOverlapping:
+                      !!backtestSettings.nonOverlapping,
+                  }),
+              }
+            );
+
+          setBacktestResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setBacktestError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setBacktestLoading(
+            false
+          );
+        }
+      },
+      [
+        backtestSettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -4942,6 +6125,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setBacktestOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                backtestOpen
+                  ? "rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-xs font-mono text-blue-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Historical Backtest
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -5399,6 +6599,37 @@ Do not invent missing values.`
               "_blank",
               "noopener,noreferrer"
             )
+          }
+        />
+      )}
+
+      {/* HISTORICAL BACKTEST */}
+
+      {backtestOpen && (
+        <HistoricalBacktestPanel
+          tickers={
+            tickers
+          }
+          settings={
+            backtestSettings
+          }
+          setSettings={
+            setBacktestSettings
+          }
+          result={
+            backtestResult
+          }
+          loading={
+            backtestLoading
+          }
+          error={
+            backtestError
+          }
+          onRun={
+            runHistoricalBacktest
+          }
+          connected={
+            robinhoodStatus.connected
           }
         />
       )}
