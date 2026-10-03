@@ -7,24 +7,177 @@ require("dotenv").config({
 const { McpServer } = require(
   "@modelcontextprotocol/sdk/server/mcp.js"
 );
+
 const { StdioServerTransport } = require(
   "@modelcontextprotocol/sdk/server/stdio.js"
 );
+
+const { Client } = require(
+  "@modelcontextprotocol/sdk/client/index.js"
+);
+
+const { StreamableHTTPClientTransport } = require(
+  "@modelcontextprotocol/sdk/client/streamableHttp.js"
+);
+
 const { z } = require("zod");
+
+const ROBINHOOD_MCP_URL =
+  "https://agent.robinhood.com/mcp/trading";
 
 const server = new McpServer({
   name: "options-scanner",
-  version: "1.0.0",
+  version: "2.0.0",
 });
+
+let robinhoodClient = null;
+
+async function getRobinhoodClient() {
+  if (robinhoodClient) {
+    return robinhoodClient;
+  }
+
+  const client = new Client({
+    name: "options-scanner-robinhood-client",
+    version: "1.0.0",
+  });
+
+  const transport = new StreamableHTTPClientTransport(
+    new URL(ROBINHOOD_MCP_URL)
+  );
+
+  try {
+    await client.connect(transport);
+
+    robinhoodClient = client;
+
+    return robinhoodClient;
+  } catch (error) {
+    throw new Error(
+      "Unable to connect to Robinhood MCP. " +
+      "Authentication may still be required. " +
+      error.message
+    );
+  }
+}
+
+server.registerTool(
+  "list_robinhood_tools",
+  {
+    title: "List Robinhood MCP tools",
+    description:
+      "Lists the tools exposed by the connected Robinhood Trading MCP.",
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
+  },
+  async () => {
+    try {
+      const client = await getRobinhoodClient();
+
+      const result = await client.listTools();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              result,
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: error.message,
+          },
+        ],
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "call_robinhood_tool",
+  {
+    title: "Call Robinhood MCP tool",
+    description:
+      "Calls a tool exposed by the Robinhood Trading MCP.",
+    inputSchema: {
+      toolName: z
+        .string()
+        .min(1)
+        .describe("Exact Robinhood MCP tool name"),
+
+      arguments: z
+        .record(z.any())
+        .default({})
+        .describe(
+          "Arguments required by the Robinhood MCP tool"
+        ),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
+  },
+  async ({ toolName, arguments: args }) => {
+    try {
+      const client = await getRobinhoodClient();
+
+      const result = await client.callTool({
+        name: toolName,
+        arguments: args,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                source: "Robinhood Trading MCP",
+                tool: toolName,
+                retrieved_at: new Date().toISOString(),
+                result,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text:
+              "Robinhood MCP request failed: " +
+              error.message,
+          },
+        ],
+      };
+    }
+  }
+);
 
 server.registerTool(
   "get_ticker_data",
   {
-    title: "Get options scanner data",
+    title: "Get ticker data",
     description:
-      "Fetch Trading Volatility data for a ticker. " +
-      "Provider estimates are not verified dealer positions. " +
-      "Check provider timestamps before treating data as current.",
+      "Attempts to retrieve market data for a ticker using Robinhood MCP.",
     inputSchema: {
       ticker: z
         .string()
@@ -32,9 +185,6 @@ server.registerTool(
         .toUpperCase()
         .regex(/^[A-Z0-9.^-]{1,15}$/)
         .describe("Ticker symbol, for example PLTR"),
-      section: z
-        .enum(["snapshot", "explanation", "market_structure"])
-        .default("snapshot"),
     },
     annotations: {
       readOnlyHint: true,
@@ -42,82 +192,60 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ ticker, section }) => {
-    const key = (process.env.TV_API_KEY || "").trim();
-
-    if (!key || key.startsWith("your_")) {
-      return {
-        isError: true,
-        content: [{
-          type: "text",
-          text: "Set TV_API_KEY in the server environment.",
-        }],
-      };
-    }
-
-    const suffix = {
-      snapshot: "",
-      explanation: "/explain",
-      market_structure: "/market-structure",
-    }[section];
-
-    const url =
-      "https://stocks.tradingvolatility.net/api/v2/tickers/" +
-      encodeURIComponent(ticker) +
-      suffix;
-
+  async ({ ticker }) => {
     try {
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${key}`,
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(20000),
-      });
+      const client = await getRobinhoodClient();
 
-      if (!response.ok) {
-        throw new Error(`Provider returned HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
+      const tools = await client.listTools();
 
       return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            ticker,
-            section,
-            source: "Trading Volatility",
-            retrieved_at: new Date().toISOString(),
-            timestamp_note:
-              "retrieved_at is retrieval time, not market-data time.",
-            data,
-          }),
-        }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                ticker,
+                message:
+                  "Robinhood MCP connected. " +
+                  "Use list_robinhood_tools to determine " +
+                  "the exact market-data tool for this ticker.",
+                availableTools:
+                  tools.tools?.map((tool) => ({
+                    name: tool.name,
+                    description: tool.description,
+                  })) || [],
+              },
+              null,
+              2
+            ),
+          },
+        ],
       };
     } catch (error) {
       return {
         isError: true,
-        content: [{
-          type: "text",
-          text:
-            error.name === "TimeoutError"
-              ? "The market-data request timed out."
-              : "Market-data request failed. " +
-                (error.message.startsWith("Provider returned HTTP")
-                  ? error.message
-                  : "Check the API key and server connection."),
-        }],
+        content: [
+          {
+            type: "text",
+            text: error.message,
+          },
+        ],
       };
     }
   }
 );
 
 async function main() {
-  await server.connect(new StdioServerTransport());
+  await server.connect(
+    new StdioServerTransport()
+  );
 }
 
-main().catch(() => {
-  console.error("Options scanner MCP server failed to start.");
+main().catch((error) => {
+  console.error(
+    "Options scanner MCP server failed to start:",
+    error
+  );
+
   process.exitCode = 1;
 });
