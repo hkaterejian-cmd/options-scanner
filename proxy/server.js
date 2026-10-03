@@ -2089,6 +2089,181 @@ function summarizeBySymbol(
   );
 }
 
+
+function tradeInDateRange(
+  trade,
+  start,
+  end
+) {
+  const time =
+    Date.parse(
+      trade.signal_time ||
+      trade.entry_time ||
+      0
+    );
+
+  return (
+    time >=
+      start.getTime() &&
+    time <
+      end.getTime()
+  );
+}
+
+function buildResearchVariantDefinitions() {
+  const holdVariants = [
+    1,
+    3,
+    5,
+    10,
+    20,
+  ];
+
+  const rsiProfiles = [
+    {
+      label:
+        "50/50",
+
+      bullishRsi:
+        50,
+
+      bearishRsi:
+        50,
+    },
+
+    {
+      label:
+        "55/45",
+
+      bullishRsi:
+        55,
+
+      bearishRsi:
+        45,
+    },
+
+    {
+      label:
+        "60/40",
+
+      bullishRsi:
+        60,
+
+      bearishRsi:
+        40,
+    },
+  ];
+
+  const signalRequirements = [
+    2,
+    3,
+  ];
+
+  const directionModes = [
+    "both",
+    "bullish_only",
+    "bearish_only",
+  ];
+
+  const definitions =
+    [];
+
+  for (
+    const directionMode of directionModes
+  ) {
+    for (
+      const holdDays of holdVariants
+    ) {
+      for (
+        const rsiProfile of rsiProfiles
+      ) {
+        for (
+          const requiredSignals of signalRequirements
+        ) {
+          definitions.push({
+            id:
+              directionMode +
+              "|" +
+              holdDays +
+              "|" +
+              rsiProfile.label +
+              "|" +
+              requiredSignals,
+
+            directionMode,
+            holdDays,
+
+            rsiProfile:
+              rsiProfile.label,
+
+            bullishRsi:
+              rsiProfile
+                .bullishRsi,
+
+            bearishRsi:
+              rsiProfile
+                .bearishRsi,
+
+            requiredSignals,
+          });
+        }
+      }
+    }
+  }
+
+  return definitions;
+}
+
+function selectionFrequencyRows(
+  selections
+) {
+  const map =
+    new Map();
+
+  for (
+    const selection of selections
+  ) {
+    if (
+      !selection
+    ) {
+      continue;
+    }
+
+    const current =
+      map.get(
+        selection.id
+      ) ?? {
+        id:
+          selection.id,
+
+        parameters:
+          selection.parameters,
+
+        count:
+          0,
+      };
+
+    current.count +=
+      1;
+
+    map.set(
+      selection.id,
+      current
+    );
+  }
+
+  return [
+    ...map.values(),
+  ].sort(
+    (a, b) =>
+      b.count -
+        a.count ||
+      a.id.localeCompare(
+        b.id
+      )
+  );
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -4301,6 +4476,783 @@ app.post(
           "A small number of trades can make validation and test statistics unstable.",
           "Research across many variants increases overfitting risk even with a held-out test period.",
         ],
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+app.post(
+  "/scanner/walk-forward",
+
+  async (req, res) => {
+    try {
+      const rawSymbols =
+        Array.isArray(
+          req.body
+            ?.symbols
+        )
+          ? req.body
+              .symbols
+          : [
+              req.body
+                ?.symbol,
+            ];
+
+      const symbols =
+        [
+          ...new Set(
+            rawSymbols
+              .filter(
+                Boolean
+              )
+              .map(
+                normalizeTicker
+              )
+          ),
+        ].slice(
+          0,
+          12
+        );
+
+      if (
+        !symbols.length
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "At least one ticker symbol is required.",
+          });
+      }
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          540,
+          3650,
+          1095
+        );
+
+      const initialTrainDays =
+        clampNumber(
+          req.body
+            ?.trainDays,
+          180,
+          1825,
+          365
+        );
+
+      const validationDays =
+        clampNumber(
+          req.body
+            ?.validationDays,
+          30,
+          365,
+          90
+        );
+
+      const testDays =
+        clampNumber(
+          req.body
+            ?.testDays,
+          20,
+          365,
+          60
+        );
+
+      const costBps =
+        Math.max(
+          0,
+          Math.min(
+            500,
+            Number(
+              req.body
+                ?.costBps ??
+              10
+            ) ||
+            0
+          )
+        );
+
+      const nonOverlapping =
+        req.body
+          ?.nonOverlapping !==
+        false;
+
+      if (
+        initialTrainDays +
+          validationDays +
+          testDays >
+        lookbackDays
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Lookback must be longer than the initial train + validation + test windows.",
+          });
+      }
+
+      const end =
+        new Date();
+
+      const requestedStart =
+        new Date(
+          end.getTime() -
+          lookbackDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const fetchStart =
+        new Date(
+          requestedStart.getTime() -
+          120 *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      const marketData =
+        {};
+
+      for (
+        const symbol of symbols
+      ) {
+        const common = {
+          start_time:
+            fetchStart.toISOString(),
+
+          end_time:
+            end.toISOString(),
+
+          interval:
+            "day",
+
+          bounds:
+            "regular",
+
+          adjustment_type:
+            "split",
+        };
+
+        const [
+          historicalResult,
+          rsiResult,
+          macdResult,
+        ] =
+          await Promise.all([
+            callRobinhoodTool(
+              "get_equity_historicals",
+              {
+                symbols: [
+                  symbol,
+                ],
+
+                ...common,
+              }
+            ),
+
+            callRobinhoodTool(
+              "get_equity_technical_indicators",
+              {
+                symbol,
+
+                type:
+                  "rsi",
+
+                ...common,
+
+                output:
+                  "series",
+
+                period:
+                  14,
+              }
+            ),
+
+            callRobinhoodTool(
+              "get_equity_technical_indicators",
+              {
+                symbol,
+
+                type:
+                  "macd",
+
+                ...common,
+
+                output:
+                  "series",
+
+                fast_period:
+                  12,
+
+                slow_period:
+                  26,
+
+                signal_period:
+                  9,
+              }
+            ),
+          ]);
+
+        marketData[
+          symbol
+        ] = {
+          bars:
+            extractBacktestBars(
+              unwrapRobinhoodToolResult(
+                historicalResult
+              )
+            ),
+
+          rsiSeries:
+            extractBacktestIndicator(
+              unwrapRobinhoodToolResult(
+                rsiResult
+              ),
+              "rsi"
+            ),
+
+          macdSeries:
+            extractBacktestIndicator(
+              unwrapRobinhoodToolResult(
+                macdResult
+              ),
+              "macd"
+            ),
+        };
+      }
+
+      const definitions =
+        buildResearchVariantDefinitions();
+
+      const variantTrades =
+        new Map();
+
+      for (
+        const definition of definitions
+      ) {
+        const trades =
+          [];
+
+        for (
+          const symbol of symbols
+        ) {
+          const data =
+            marketData[
+              symbol
+            ];
+
+          trades.push(
+            ...runDirectionalBacktest({
+              bars:
+                data.bars,
+
+              rsiSeries:
+                data.rsiSeries,
+
+              macdSeries:
+                data.macdSeries,
+
+              requestedStart,
+
+              holdDays:
+                definition
+                  .holdDays,
+
+              costBps,
+
+              nonOverlapping,
+
+              directionMode:
+                definition
+                  .directionMode,
+
+              bullishRsi:
+                definition
+                  .bullishRsi,
+
+              bearishRsi:
+                definition
+                  .bearishRsi,
+
+              requiredSignals:
+                definition
+                  .requiredSignals,
+
+              symbol,
+            })
+          );
+        }
+
+        trades.sort(
+          (a, b) =>
+            Date.parse(
+              a.exit_time
+            ) -
+            Date.parse(
+              b.exit_time
+            )
+        );
+
+        variantTrades.set(
+          definition.id,
+          trades
+        );
+      }
+
+      const baselineId =
+        "both|5|55/45|2";
+
+      const folds =
+        [];
+
+      const selectedTestTrades =
+        [];
+
+      const baselineTestTrades =
+        [];
+
+      const selections =
+        [];
+
+      let trainEnd =
+        new Date(
+          requestedStart.getTime() +
+          initialTrainDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      let foldIndex =
+        1;
+
+      while (
+        true
+      ) {
+        const validationEnd =
+          new Date(
+            trainEnd.getTime() +
+            validationDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        const testEnd =
+          new Date(
+            validationEnd.getTime() +
+            testDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        if (
+          testEnd.getTime() >
+          end.getTime()
+        ) {
+          break;
+        }
+
+        const candidates =
+          [];
+
+        for (
+          const definition of definitions
+        ) {
+          const trades =
+            variantTrades.get(
+              definition.id
+            ) ??
+            [];
+
+          const trainTrades =
+            trades.filter(
+              (trade) =>
+                tradeInDateRange(
+                  trade,
+                  requestedStart,
+                  trainEnd
+                )
+            );
+
+          const validationTrades =
+            trades.filter(
+              (trade) =>
+                tradeInDateRange(
+                  trade,
+                  trainEnd,
+                  validationEnd
+                )
+            );
+
+          const testTrades =
+            trades.filter(
+              (trade) =>
+                tradeInDateRange(
+                  trade,
+                  validationEnd,
+                  testEnd
+                )
+            );
+
+          const trainSummary =
+            summarizeBacktestTrades(
+              trainTrades
+            );
+
+          const validationSummary =
+            summarizeBacktestTrades(
+              validationTrades
+            );
+
+          const validationScore =
+            researchCandidateScore(
+              validationSummary
+            );
+
+          if (
+            validationScore ===
+              null ||
+            trainSummary.trades <
+              10 ||
+            validationSummary.trades <
+              5
+          ) {
+            continue;
+          }
+
+          candidates.push({
+            id:
+              definition.id,
+
+            parameters: {
+              direction_mode:
+                definition
+                  .directionMode,
+
+              hold_sessions:
+                definition
+                  .holdDays,
+
+              rsi_profile:
+                definition
+                  .rsiProfile,
+
+              bullish_rsi:
+                definition
+                  .bullishRsi,
+
+              bearish_rsi:
+                definition
+                  .bearishRsi,
+
+              required_signals:
+                definition
+                  .requiredSignals,
+
+              cost_bps:
+                costBps,
+            },
+
+            train:
+              trainSummary,
+
+            validation:
+              validationSummary,
+
+            test:
+              summarizeBacktestTrades(
+                testTrades
+              ),
+
+            validation_score:
+              validationScore,
+
+            test_trades:
+              testTrades,
+          });
+        }
+
+        candidates.sort(
+          (a, b) =>
+            b.validation_score -
+              a.validation_score ||
+            (
+              b.validation
+                .profit_factor ??
+              -Infinity
+            ) -
+              (
+                a.validation
+                  .profit_factor ??
+                -Infinity
+              )
+        );
+
+        const selected =
+          candidates[0] ??
+          null;
+
+        if (
+          selected
+        ) {
+          selections.push(
+            selected
+          );
+
+          selectedTestTrades.push(
+            ...selected
+              .test_trades
+          );
+        }
+
+        const baselineTrades =
+          variantTrades.get(
+            baselineId
+          ) ??
+          [];
+
+        const foldBaselineTest =
+          baselineTrades.filter(
+            (trade) =>
+              tradeInDateRange(
+                trade,
+                validationEnd,
+                testEnd
+              )
+          );
+
+        baselineTestTrades.push(
+          ...foldBaselineTest
+        );
+
+        folds.push({
+          fold:
+            foldIndex,
+
+          train_start:
+            requestedStart.toISOString(),
+
+          train_end:
+            trainEnd.toISOString(),
+
+          validation_start:
+            trainEnd.toISOString(),
+
+          validation_end:
+            validationEnd.toISOString(),
+
+          test_start:
+            validationEnd.toISOString(),
+
+          test_end:
+            testEnd.toISOString(),
+
+          eligible_candidate_count:
+            candidates.length,
+
+          selected_candidate:
+            selected
+              ? {
+                  id:
+                    selected.id,
+
+                  parameters:
+                    selected.parameters,
+
+                  train:
+                    selected.train,
+
+                  validation:
+                    selected.validation,
+
+                  test:
+                    selected.test,
+
+                  validation_score:
+                    selected.validation_score,
+                }
+              : null,
+
+          baseline_test:
+            summarizeBacktestTrades(
+              foldBaselineTest
+            ),
+        });
+
+        trainEnd =
+          new Date(
+            trainEnd.getTime() +
+            testDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        foldIndex +=
+          1;
+      }
+
+      selectedTestTrades.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      baselineTestTrades.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      const completedFolds =
+        folds.filter(
+          (fold) =>
+            !!fold
+              .selected_candidate
+        );
+
+      const positiveFolds =
+        completedFolds.filter(
+          (fold) =>
+            (
+              fold
+                .selected_candidate
+                ?.test
+                ?.compounded_return_pct ??
+              0
+            ) >
+            0
+        ).length;
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "scanner_expanding_walk_forward_v1",
+
+        symbols,
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          initial_train_days:
+            initialTrainDays,
+
+          validation_days:
+            validationDays,
+
+          test_days:
+            testDays,
+
+          cost_bps:
+            costBps,
+
+          non_overlapping:
+            nonOverlapping,
+
+          variant_count:
+            definitions.length,
+        },
+
+        methodology: {
+          selection:
+            "Each fold selects the highest validation-scoring rule using only data before that fold's test window. Minimum eligibility is 10 training trades and 5 validation trades.",
+
+          rolling:
+            "Training expands forward by one test window per fold. Validation and test windows roll forward without overlap.",
+
+          score:
+            "Validation score = average return minus 5% of absolute validation drawdown.",
+
+          caution:
+            "This remains an underlying-stock directional proxy, not historical option-spread P/L.",
+        },
+
+        summary: {
+          folds:
+            folds.length,
+
+          completed_folds:
+            completedFolds.length,
+
+          skipped_folds:
+            folds.length -
+            completedFolds.length,
+
+          positive_test_folds:
+            positiveFolds,
+
+          positive_test_fold_rate:
+            completedFolds.length
+              ? (
+                  positiveFolds /
+                  completedFolds.length
+                ) *
+                100
+              : null,
+
+          selected_oos:
+            summarizeBacktestTrades(
+              selectedTestTrades
+            ),
+
+          baseline_oos:
+            summarizeBacktestTrades(
+              baselineTestTrades
+            ),
+        },
+
+        selection_frequency:
+          selectionFrequencyRows(
+            selections
+          ),
+
+        selected_oos_by_ticker:
+          summarizeBySymbol(
+            selectedTestTrades,
+            symbols
+          ),
+
+        baseline_oos_by_ticker:
+          summarizeBySymbol(
+            baselineTestTrades,
+            symbols
+          ),
+
+        folds,
+
+        selected_oos_trades:
+          selectedTestTrades,
       });
 
     } catch (error) {
