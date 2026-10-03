@@ -1073,6 +1073,1113 @@ function mergePaperTrades(
 
 /*
   =========================================================
+  PAPER TRADE ANALYTICS
+  =========================================================
+*/
+
+function finiteNumber(
+  value
+) {
+  const number =
+    Number(
+      value
+    );
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : null;
+}
+
+function averageNumbers(
+  values
+) {
+  const usable =
+    values
+      .map(
+        finiteNumber
+      )
+      .filter(
+        (value) =>
+          value !==
+          null
+      );
+
+  if (
+    !usable.length
+  ) {
+    return null;
+  }
+
+  return (
+    usable.reduce(
+      (
+        total,
+        value
+      ) =>
+        total +
+        value,
+      0
+    ) /
+    usable.length
+  );
+}
+
+function paperTradeDatasetRow(
+  trade
+) {
+  const realizedPL =
+    finiteNumber(
+      trade.realizedPL
+    );
+
+  const entryCost =
+    finiteNumber(
+      trade.entryCost
+    );
+
+  const returnPct =
+    realizedPL !==
+      null &&
+    entryCost !==
+      null &&
+    entryCost !==
+      0
+      ? (
+          realizedPL /
+          entryCost
+        ) *
+        100
+      : null;
+
+  const longIv =
+    finiteNumber(
+      trade.entryLongIv
+    );
+
+  const shortIv =
+    finiteNumber(
+      trade.entryShortIv
+    );
+
+  const meanIv =
+    averageNumbers([
+      longIv,
+      shortIv,
+    ]);
+
+  const entrySlippageDollars =
+    finiteNumber(
+      trade.entrySlippageDollars
+    ) ??
+    0;
+
+  const exitSlippageDollars =
+    finiteNumber(
+      trade.exitSlippageDollars
+    ) ??
+    0;
+
+  return {
+    id:
+      trade.id ??
+      null,
+
+    ticker:
+      trade.ticker ??
+      null,
+
+    status:
+      trade.status ??
+      null,
+
+    opened_at:
+      trade.openedAt ??
+      null,
+
+    closed_at:
+      trade.closedAt ??
+      null,
+
+    expiration:
+      trade.expiration ??
+      null,
+
+    option_type:
+      trade.optionType ??
+      null,
+
+    long_strike:
+      finiteNumber(
+        trade.longStrike
+      ),
+
+    short_strike:
+      finiteNumber(
+        trade.shortStrike
+      ),
+
+    quantity:
+      finiteNumber(
+        trade.quantity
+      ),
+
+    fill_model:
+      trade.fillModel ??
+      null,
+
+    entry_spot:
+      finiteNumber(
+        trade.entrySpot
+      ),
+
+    exit_spot:
+      finiteNumber(
+        trade.exitSpot
+      ),
+
+    entry_rsi:
+      finiteNumber(
+        trade.entryRsi
+      ),
+
+    exit_rsi:
+      finiteNumber(
+        trade.exitRsi
+      ),
+
+    entry_macd_histogram:
+      finiteNumber(
+        trade.entryMacdHistogram
+      ),
+
+    exit_macd_histogram:
+      finiteNumber(
+        trade.exitMacdHistogram
+      ),
+
+    entry_long_iv:
+      longIv,
+
+    entry_short_iv:
+      shortIv,
+
+    entry_mean_iv:
+      meanIv,
+
+    entry_delta:
+      finiteNumber(
+        trade.entryDelta
+      ),
+
+    entry_gamma:
+      finiteNumber(
+        trade.entryGamma
+      ),
+
+    entry_theta:
+      finiteNumber(
+        trade.entryTheta
+      ),
+
+    entry_vega:
+      finiteNumber(
+        trade.entryVega
+      ),
+
+    entry_put_oi_wall:
+      finiteNumber(
+        trade.entryPutOIWall
+      ),
+
+    entry_call_oi_wall:
+      finiteNumber(
+        trade.entryCallOIWall
+      ),
+
+    entry_gamma_concentration:
+      finiteNumber(
+        trade.entryGammaConcentration
+      ),
+
+    reward_risk:
+      finiteNumber(
+        trade.paperRewardRisk ??
+        trade.rewardRisk
+      ),
+
+    max_loss:
+      finiteNumber(
+        trade.paperMaxLoss ??
+        trade.maxLoss
+      ),
+
+    max_profit:
+      finiteNumber(
+        trade.paperMaxProfit ??
+        trade.maxProfit
+      ),
+
+    breakeven:
+      finiteNumber(
+        trade.breakeven
+      ),
+
+    entry_theoretical_midpoint:
+      finiteNumber(
+        trade.entryTheoreticalMidpoint ??
+        trade.entryPrice
+      ),
+
+    entry_fill:
+      finiteNumber(
+        trade.entryPrice
+      ),
+
+    entry_slippage_dollars:
+      entrySlippageDollars,
+
+    exit_theoretical_midpoint:
+      finiteNumber(
+        trade.exitTheoreticalMidpoint ??
+        trade.exitPrice
+      ),
+
+    exit_fill:
+      finiteNumber(
+        trade.exitPrice
+      ),
+
+    exit_slippage_dollars:
+      exitSlippageDollars,
+
+    total_slippage_dollars:
+      entrySlippageDollars +
+      exitSlippageDollars,
+
+    total_fees:
+      finiteNumber(
+        trade.totalFees
+      ) ??
+      finiteNumber(
+        trade.entryFees
+      ) ??
+      0,
+
+    realized_pl:
+      realizedPL,
+
+    realized_return_pct:
+      returnPct,
+
+    mfe:
+      finiteNumber(
+        trade.maxFavorablePL
+      ),
+
+    mae:
+      finiteNumber(
+        trade.maxAdversePL
+      ),
+
+    holding_minutes:
+      finiteNumber(
+        trade.holdingMinutes
+      ),
+
+    exit_reason:
+      trade.exitReason ??
+      null,
+
+    profitable:
+      realizedPL !==
+      null
+        ? realizedPL >
+          0
+        : null,
+  };
+}
+
+function rsiBucket(
+  value
+) {
+  const number =
+    finiteNumber(
+      value
+    );
+
+  if (
+    number ===
+    null
+  ) {
+    return "Unknown";
+  }
+
+  if (
+    number <
+    30
+  ) {
+    return "<30";
+  }
+
+  if (
+    number <
+    50
+  ) {
+    return "30-49.9";
+  }
+
+  if (
+    number <
+    70
+  ) {
+    return "50-69.9";
+  }
+
+  return "70+";
+}
+
+function macdBucket(
+  value
+) {
+  const number =
+    finiteNumber(
+      value
+    );
+
+  if (
+    number ===
+    null
+  ) {
+    return "Unknown";
+  }
+
+  if (
+    number >
+    0
+  ) {
+    return "Positive";
+  }
+
+  if (
+    number <
+    0
+  ) {
+    return "Negative";
+  }
+
+  return "Zero";
+}
+
+function ivBucket(
+  value
+) {
+  const number =
+    finiteNumber(
+      value
+    );
+
+  if (
+    number ===
+    null
+  ) {
+    return "Unknown";
+  }
+
+  const percent =
+    number *
+    100;
+
+  if (
+    percent <
+    25
+  ) {
+    return "<25%";
+  }
+
+  if (
+    percent <
+    40
+  ) {
+    return "25-39.9%";
+  }
+
+  if (
+    percent <
+    60
+  ) {
+    return "40-59.9%";
+  }
+
+  return "60%+";
+}
+
+function rewardRiskBucket(
+  value
+) {
+  const number =
+    finiteNumber(
+      value
+    );
+
+  if (
+    number ===
+    null
+  ) {
+    return "Unknown";
+  }
+
+  if (
+    number <
+    1
+  ) {
+    return "<1.0x";
+  }
+
+  if (
+    number <
+    1.5
+  ) {
+    return "1.0-1.49x";
+  }
+
+  if (
+    number <
+    2
+  ) {
+    return "1.5-1.99x";
+  }
+
+  return "2.0x+";
+}
+
+function holdingBucket(
+  value
+) {
+  const minutes =
+    finiteNumber(
+      value
+    );
+
+  if (
+    minutes ===
+    null
+  ) {
+    return "Unknown";
+  }
+
+  if (
+    minutes <
+    60
+  ) {
+    return "<1h";
+  }
+
+  if (
+    minutes <
+    240
+  ) {
+    return "1-4h";
+  }
+
+  if (
+    minutes <
+    1440
+  ) {
+    return "4-24h";
+  }
+
+  if (
+    minutes <
+    4320
+  ) {
+    return "1-3d";
+  }
+
+  return "3d+";
+}
+
+function buildBreakdown(
+  rows,
+  keyFunction
+) {
+  const groups =
+    new Map();
+
+  for (
+    const row of rows
+  ) {
+    const key =
+      String(
+        keyFunction(
+          row
+        ) ??
+        "Unknown"
+      );
+
+    if (
+      !groups.has(
+        key
+      )
+    ) {
+      groups.set(
+        key,
+        []
+      );
+    }
+
+    groups.get(
+      key
+    ).push(
+      row
+    );
+  }
+
+  return [
+    ...groups.entries(),
+  ]
+    .map(
+      ([
+        key,
+        groupRows,
+      ]) => {
+        const wins =
+          groupRows.filter(
+            (row) =>
+              (
+                finiteNumber(
+                  row.realized_pl
+                ) ??
+                0
+              ) >
+              0
+          );
+
+        const losses =
+          groupRows.filter(
+            (row) =>
+              (
+                finiteNumber(
+                  row.realized_pl
+                ) ??
+                0
+              ) <
+              0
+          );
+
+        const totalPL =
+          groupRows.reduce(
+            (
+              total,
+              row
+            ) =>
+              total +
+              (
+                finiteNumber(
+                  row.realized_pl
+                ) ??
+                0
+              ),
+            0
+          );
+
+        return {
+          key,
+
+          trades:
+            groupRows.length,
+
+          wins:
+            wins.length,
+
+          losses:
+            losses.length,
+
+          win_rate:
+            groupRows.length >
+            0
+              ? (
+                  wins.length /
+                  groupRows.length
+                ) *
+                100
+              : null,
+
+          total_pl:
+            totalPL,
+
+          average_pl:
+            averageNumbers(
+              groupRows.map(
+                (row) =>
+                  row.realized_pl
+              )
+            ),
+
+          average_return_pct:
+            averageNumbers(
+              groupRows.map(
+                (row) =>
+                  row.realized_return_pct
+              )
+            ),
+
+          average_mfe:
+            averageNumbers(
+              groupRows.map(
+                (row) =>
+                  row.mfe
+              )
+            ),
+
+          average_mae:
+            averageNumbers(
+              groupRows.map(
+                (row) =>
+                  row.mae
+              )
+            ),
+        };
+      }
+    )
+    .sort(
+      (a, b) =>
+        b.trades -
+        a.trades ||
+        a.key.localeCompare(
+          b.key
+        )
+    );
+}
+
+function calculateMaxDrawdown(
+  rows
+) {
+  const ordered =
+    [...rows].sort(
+      (a, b) =>
+        Date.parse(
+          a.closed_at ||
+          0
+        ) -
+        Date.parse(
+          b.closed_at ||
+          0
+        )
+    );
+
+  let cumulative =
+    0;
+
+  let peak =
+    0;
+
+  let maxDrawdown =
+    0;
+
+  for (
+    const row of ordered
+  ) {
+    cumulative +=
+      finiteNumber(
+        row.realized_pl
+      ) ??
+      0;
+
+    peak =
+      Math.max(
+        peak,
+        cumulative
+      );
+
+    maxDrawdown =
+      Math.min(
+        maxDrawdown,
+        cumulative -
+        peak
+      );
+  }
+
+  return {
+    max_drawdown:
+      maxDrawdown,
+
+    cumulative_pl:
+      cumulative,
+  };
+}
+
+function buildPaperAnalytics(
+  state
+) {
+  const allTrades =
+    Array.isArray(
+      state.paperTrades
+    )
+      ? state.paperTrades
+      : [];
+
+  const openTrades =
+    allTrades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closedTrades =
+    allTrades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const dataset =
+    closedTrades.map(
+      paperTradeDatasetRow
+    );
+
+  const wins =
+    dataset.filter(
+      (row) =>
+        (
+          finiteNumber(
+            row.realized_pl
+          ) ??
+          0
+        ) >
+        0
+    );
+
+  const losses =
+    dataset.filter(
+      (row) =>
+        (
+          finiteNumber(
+            row.realized_pl
+          ) ??
+          0
+        ) <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        row
+      ) =>
+        total +
+        (
+          finiteNumber(
+            row.realized_pl
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          row
+        ) =>
+          total +
+          (
+            finiteNumber(
+              row.realized_pl
+            ) ??
+            0
+          ),
+        0
+      )
+    );
+
+  const drawdown =
+    calculateMaxDrawdown(
+      dataset
+    );
+
+  const summary = {
+    total_trades:
+      allTrades.length,
+
+    open_trades:
+      openTrades.length,
+
+    closed_trades:
+      dataset.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    breakeven_trades:
+      dataset.length -
+      wins.length -
+      losses.length,
+
+    win_rate:
+      dataset.length >
+      0
+        ? (
+            wins.length /
+            dataset.length
+          ) *
+          100
+        : null,
+
+    gross_profit:
+      grossProfit,
+
+    gross_loss:
+      grossLoss,
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : grossProfit >
+            0
+          ? null
+          : null,
+
+    expectancy_per_trade:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.realized_pl
+        )
+      ),
+
+    average_winner:
+      averageNumbers(
+        wins.map(
+          (row) =>
+            row.realized_pl
+        )
+      ),
+
+    average_loser:
+      averageNumbers(
+        losses.map(
+          (row) =>
+            row.realized_pl
+        )
+      ),
+
+    cumulative_pl:
+      drawdown.cumulative_pl,
+
+    max_drawdown:
+      drawdown.max_drawdown,
+
+    average_mfe:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.mfe
+        )
+      ),
+
+    average_mae:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.mae
+        )
+      ),
+
+    average_slippage:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.total_slippage_dollars
+        )
+      ),
+
+    average_fees:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.total_fees
+        )
+      ),
+
+    average_holding_minutes:
+      averageNumbers(
+        dataset.map(
+          (row) =>
+            row.holding_minutes
+        )
+      ),
+  };
+
+  return {
+    generated_at:
+      new Date().toISOString(),
+
+    dataset_version:
+      1,
+
+    summary,
+
+    breakdowns: {
+      ticker:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            row.ticker
+        ),
+
+      option_type:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            row.option_type
+        ),
+
+      entry_rsi:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            rsiBucket(
+              row.entry_rsi
+            )
+        ),
+
+      entry_macd:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            macdBucket(
+              row.entry_macd_histogram
+            )
+        ),
+
+      entry_iv:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            ivBucket(
+              row.entry_mean_iv
+            )
+        ),
+
+      reward_risk:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            rewardRiskBucket(
+              row.reward_risk
+            )
+        ),
+
+      exit_reason:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            row.exit_reason ||
+            "Unknown"
+        ),
+
+      holding_time:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            holdingBucket(
+              row.holding_minutes
+            )
+        ),
+
+      fill_model:
+        buildBreakdown(
+          dataset,
+          (row) =>
+            row.fill_model ||
+            "legacy"
+        ),
+    },
+
+    dataset,
+  };
+}
+
+function csvEscape(
+  value
+) {
+  if (
+    value ===
+      null ||
+    value ===
+      undefined
+  ) {
+    return "";
+  }
+
+  const text =
+    String(
+      value
+    );
+
+  if (
+    text.includes(",") ||
+    text.includes('"') ||
+    text.includes("\n")
+  ) {
+    return `"${text.replaceAll(
+      '"',
+      '""'
+    )}"`;
+  }
+
+  return text;
+}
+
+function datasetToCsv(
+  rows
+) {
+  if (
+    !rows.length
+  ) {
+    return "";
+  }
+
+  const headers =
+    Object.keys(
+      rows[0]
+    );
+
+  return [
+    headers
+      .map(
+        csvEscape
+      )
+      .join(","),
+
+    ...rows.map(
+      (row) =>
+        headers
+          .map(
+            (header) =>
+              csvEscape(
+                row[
+                  header
+                ]
+              )
+          )
+          .join(",")
+    ),
+  ].join("\n");
+}
+
+/*
+  =========================================================
   SCANNER STATE API
   =========================================================
 */
@@ -1084,6 +2191,78 @@ app.get(
     try {
       return res.json(
         await readScannerState()
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.get(
+  "/scanner/paper-analytics",
+
+  async (_req, res) => {
+    try {
+      const state =
+        await readScannerState();
+
+      return res.json(
+        buildPaperAnalytics(
+          state
+        )
+      );
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.get(
+  "/scanner/paper-dataset.csv",
+
+  async (_req, res) => {
+    try {
+      const state =
+        await readScannerState();
+
+      const analytics =
+        buildPaperAnalytics(
+          state
+        );
+
+      const csv =
+        datasetToCsv(
+          analytics.dataset
+        );
+
+      res.setHeader(
+        "Content-Type",
+        "text/csv; charset=utf-8"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="options-scanner-paper-trades.csv"'
+      );
+
+      return res.send(
+        csv
       );
 
     } catch (error) {
