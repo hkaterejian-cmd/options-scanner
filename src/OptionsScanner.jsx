@@ -8218,6 +8218,511 @@ function NestedRiskWalkForwardPanel({
   );
 }
 
+
+/*
+  =========================================================
+  HISTORICAL OPTION-SPREAD REPLAY
+  =========================================================
+*/
+
+function HistoricalOptionReplayPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const summary =
+    result?.summary ??
+    {};
+
+  const trades =
+    Array.isArray(
+      result?.trades
+    )
+      ? result.trades
+      : [];
+
+  const skipped =
+    Array.isArray(
+      result?.skipped
+    )
+      ? result.skipped
+      : [];
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >= 0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >= 0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-sky-500/20 bg-sky-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-sky-400">
+              Historical option-spread replay
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Replay expired vertical spreads from Robinhood option history
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Uses expired contracts and historical option OHLC bars to measure spread P/L rather than only the underlying move.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            v1 · trade-price proxy
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Direction
+            </div>
+
+            <select
+              value={
+                settings.directionMode
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+                    directionMode:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value="both">Both</option>
+              <option value="bullish_only">Bullish only</option>
+              <option value="bearish_only">Bearish only</option>
+            </select>
+          </label>
+
+          {[
+            ["lookbackDays", "Lookback days"],
+            ["holdDays", "Hold sessions"],
+            ["targetDte", "Target DTE"],
+            ["shortDistancePct", "Short OTM %"],
+            ["maxSignals", "Max signals"],
+          ].map(
+            ([
+              key,
+              label,
+            ]) => (
+              <label
+                key={
+                  key
+                }
+                className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                  {label}
+                </div>
+
+                <input
+                  type="number"
+                  min="1"
+                  value={
+                    settings[
+                      key
+                    ]
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setSettings(
+                      (current) => ({
+                        ...current,
+                        [key]:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                />
+              </label>
+            )
+          )}
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={
+              onRun
+            }
+            disabled={
+              loading ||
+              !connected ||
+              !settings.symbol
+            }
+            className="rounded border border-sky-400/50 bg-sky-400/10 px-4 py-2.5 text-[10px] font-bold text-sky-300 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            {loading
+              ? "REPLAYING OPTIONS..."
+              : connected
+                ? "RUN OPTION REPLAY"
+                : "CONNECT ROBINHOOD"}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Option replay error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              <span className="text-sky-300">
+                {result.methodology?.structure}
+              </span>{" "}
+              {result.methodology?.expiration}{" "}
+              {result.methodology?.pricing}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.caution}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              {[
+                ["Signals", result.signal_count ?? 0],
+                ["Replayed", result.replayed_count ?? 0],
+                ["Skipped", result.skipped_count ?? 0],
+                ["Win rate", pct(summary.win_rate_pct)],
+                ["Avg spread return", pct(summary.average_return_on_debit_pct)],
+                ["Avg P/L", dollar(summary.average_pnl_dollars)],
+                ["Profit factor", ratio(summary.profit_factor)],
+                ["Max DD", dollar(summary.max_drawdown_dollars)],
+              ].map(
+                ([
+                  label,
+                  value,
+                ]) => (
+                  <div
+                    key={
+                      label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {label}
+                    </div>
+
+                    <div className="mt-1 font-mono text-sm font-bold text-zinc-100">
+                      {value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Replayed vertical spreads
+              </div>
+
+              {trades.length >
+              0 ? (
+                <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                  <table className="min-w-[1400px] w-full text-[9px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-600">
+                        <th className="px-3 py-2 text-left">Signal</th>
+                        <th className="px-3 py-2 text-left">Entry</th>
+                        <th className="px-3 py-2 text-left">Expiration</th>
+                        <th className="px-3 py-2 text-left">Structure</th>
+                        <th className="px-3 py-2 text-right">DTE</th>
+                        <th className="px-3 py-2 text-right">Debit</th>
+                        <th className="px-3 py-2 text-right">Exit Value</th>
+                        <th className="px-3 py-2 text-right">P/L</th>
+                        <th className="px-3 py-2 text-right">Return</th>
+                        <th className="px-3 py-2 text-right">MFE</th>
+                        <th className="px-3 py-2 text-right">MAE</th>
+                        <th className="px-3 py-2 text-right">RSI</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {trades.map(
+                        (trade) => (
+                          <tr
+                            key={
+                              trade.id
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td
+                              className={
+                                "px-3 py-2 text-left font-bold " +
+                                (
+                                  trade.signal ===
+                                  "bullish"
+                                    ? "text-emerald-300"
+                                    : "text-red-300"
+                                )
+                              }
+                            >
+                              {String(
+                                trade.signal
+                              ).toUpperCase()}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {new Date(
+                                trade.entry_time
+                              ).toLocaleDateString()}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {trade.expiration}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {"$"}{Number(
+                                trade.long_strike
+                              ).toFixed(
+                                2
+                              )} / {"$"}{Number(
+                                trade.short_strike
+                              ).toFixed(
+                                2
+                              )} {String(
+                                trade.option_type
+                              ).toUpperCase()}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {trade.entry_dte}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {"$"}{Number(
+                                trade.entry_debit
+                              ).toFixed(
+                                2
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {"$"}{Number(
+                                trade.exit_spread_value
+                              ).toFixed(
+                                2
+                              )}
+                            </td>
+
+                            <td className={
+                              "px-3 py-2 text-right " +
+                              (
+                                trade.pnl_dollars >
+                                0
+                                  ? "text-emerald-300"
+                                  : trade.pnl_dollars <
+                                      0
+                                    ? "text-red-300"
+                                    : ""
+                              )
+                            }>
+                              {dollar(
+                                trade.pnl_dollars
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                trade.return_on_debit_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-emerald-300">
+                              {pct(
+                                trade.close_path_mfe_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-red-300">
+                              {pct(
+                                trade.close_path_mae_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {toNumber(
+                                trade.rsi
+                              ) !==
+                              null
+                                ? Number(
+                                    trade.rsi
+                                  ).toFixed(
+                                    1
+                                  )
+                                : "—"}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+                  No historical spreads were replayed for these settings.
+                </div>
+              )}
+            </div>
+
+            {skipped.length >
+              0 && (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-black/20 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Skipped signals
+                </div>
+
+                <div className="mt-2 max-h-40 space-y-1 overflow-y-auto text-[9px] text-zinc-600">
+                  {skipped.map(
+                    (
+                      item,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          index
+                        }
+                      >
+                        {item.entry_time
+                          ? new Date(
+                              item.entry_time
+                            ).toLocaleDateString()
+                          : "—"}{" "}
+                        · {item.reason}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -8851,6 +9356,57 @@ export default function OptionsScanner() {
 
       nonOverlapping:
         true,
+    });
+
+  const [
+    optionReplayOpen,
+    setOptionReplayOpen,
+  ] =
+    useState(false);
+
+  const [
+    optionReplayResult,
+    setOptionReplayResult,
+  ] =
+    useState(null);
+
+  const [
+    optionReplayLoading,
+    setOptionReplayLoading,
+  ] =
+    useState(false);
+
+  const [
+    optionReplayError,
+    setOptionReplayError,
+  ] =
+    useState("");
+
+  const [
+    optionReplaySettings,
+    setOptionReplaySettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      directionMode:
+        "both",
+
+      lookbackDays:
+        180,
+
+      holdDays:
+        5,
+
+      targetDte:
+        9,
+
+      shortDistancePct:
+        4,
+
+      maxSignals:
+        12,
     });
 
   const scanInProgressRef =
@@ -9998,6 +10554,91 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runOptionReplay =
+    useCallback(
+      async () => {
+        setOptionReplayLoading(
+          true
+        );
+
+        setOptionReplayError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/option-spread-replay",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      optionReplaySettings.symbol,
+
+                    directionMode:
+                      optionReplaySettings.directionMode,
+
+                    lookbackDays:
+                      Number(
+                        optionReplaySettings.lookbackDays
+                      ),
+
+                    holdDays:
+                      Number(
+                        optionReplaySettings.holdDays
+                      ),
+
+                    targetDte:
+                      Number(
+                        optionReplaySettings.targetDte
+                      ),
+
+                    shortDistancePct:
+                      Number(
+                        optionReplaySettings.shortDistancePct
+                      ),
+
+                    maxSignals:
+                      Number(
+                        optionReplaySettings.maxSignals
+                      ),
+                  }),
+              }
+            );
+
+          setOptionReplayResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setOptionReplayError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setOptionReplayLoading(
+            false
+          );
+        }
+      },
+      [
+        optionReplaySettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -10723,6 +11364,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setOptionReplayOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                optionReplayOpen
+                  ? "rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-mono text-sky-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Option Replay
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -11332,6 +11990,37 @@ Do not invent missing values.`
           }
           onRun={
             runNestedRisk
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* HISTORICAL OPTION-SPREAD REPLAY */}
+
+      {optionReplayOpen && (
+        <HistoricalOptionReplayPanel
+          tickers={
+            tickers
+          }
+          settings={
+            optionReplaySettings
+          }
+          setSettings={
+            setOptionReplaySettings
+          }
+          result={
+            optionReplayResult
+          }
+          loading={
+            optionReplayLoading
+          }
+          error={
+            optionReplayError
+          }
+          onRun={
+            runOptionReplay
           }
           connected={
             robinhoodStatus.connected
