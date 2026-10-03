@@ -5156,6 +5156,11 @@ function SavedStrategyPlansPanel({
     setInvalidationPrice,
   ] = useState("");
 
+  const [
+    midpointAlertPct,
+    setMidpointAlertPct,
+  ] = useState("10");
+
   const currentStructureKey =
     longContract &&
     shortContract
@@ -5203,6 +5208,11 @@ function SavedStrategyPlansPanel({
     setInvalidationPrice(
       existingPlan?.invalidationPrice ??
       ""
+    );
+
+    setMidpointAlertPct(
+      existingPlan?.midpointAlertPct ??
+      "10"
     );
   }, [
     currentStructureKey,
@@ -5356,6 +5366,15 @@ function SavedStrategyPlansPanel({
         toNumber(
           invalidationPrice
         ),
+
+      midpointAlertPct:
+        Math.max(
+          0,
+          toNumber(
+            midpointAlertPct
+          ) ??
+          10
+        ),
     };
 
     setSavedPlans(
@@ -5500,7 +5519,7 @@ function SavedStrategyPlansPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_220px]">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_220px_220px]">
         <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             Notes / thesis
@@ -5547,6 +5566,34 @@ function SavedStrategyPlansPanel({
 
           <div className="mt-2 text-[9px] text-zinc-600">
             Optional reference level only.
+          </div>
+        </label>
+
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+          <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+            Midpoint alert %
+          </div>
+
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={
+              midpointAlertPct
+            }
+            onChange={(
+              event
+            ) =>
+              setMidpointAlertPct(
+                event.target.value
+              )
+            }
+            placeholder="10"
+            className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+          />
+
+          <div className="mt-2 text-[9px] text-zinc-600">
+            Flags a spread-midpoint move of this size or more.
           </div>
         </label>
       </div>
@@ -5774,6 +5821,286 @@ function SavedStrategyPlansPanel({
                       100
                     : null;
 
+                const savedRsiValue =
+                  toNumber(
+                    plan.savedRsi
+                  );
+
+                const savedMacdValue =
+                  toNumber(
+                    plan.savedMacdHistogram
+                  );
+
+                const currentSpotValue =
+                  toNumber(
+                    spot
+                  );
+
+                const midpointThreshold =
+                  Math.max(
+                    0,
+                    toNumber(
+                      plan.midpointAlertPct
+                    ) ??
+                    10
+                  );
+
+                const alertConditions =
+                  [];
+
+                if (
+                  invalidation !==
+                    null &&
+                  currentSpotValue !==
+                    null
+                ) {
+                  const invalidationCrossed =
+                    plan.optionType ===
+                    "call"
+                      ? currentSpotValue <=
+                        invalidation
+                      : currentSpotValue >=
+                        invalidation;
+
+                  if (
+                    invalidationCrossed
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "Invalidation crossed",
+                      tone:
+                        "red",
+                    });
+                  }
+                }
+
+                if (
+                  breakeven !==
+                    null &&
+                  currentSpotValue !==
+                    null
+                ) {
+                  const breakevenReached =
+                    plan.optionType ===
+                    "call"
+                      ? currentSpotValue >=
+                        breakeven
+                      : currentSpotValue <=
+                        breakeven;
+
+                  if (
+                    breakevenReached
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "Breakeven reached",
+                      tone:
+                        "green",
+                    });
+                  }
+                }
+
+                if (
+                  midpointChangePct !==
+                    null &&
+                  Math.abs(
+                    midpointChangePct
+                  ) >=
+                    midpointThreshold
+                ) {
+                  alertConditions.push({
+                    label:
+                      `Midpoint ${
+                        midpointChangePct >=
+                        0
+                          ? "+"
+                          : ""
+                      }${midpointChangePct.toFixed(
+                        1
+                      )}%`,
+                    tone:
+                      "violet",
+                  });
+                }
+
+                if (
+                  savedRsiValue !==
+                    null &&
+                  currentRsi !==
+                    null
+                ) {
+                  if (
+                    savedRsiValue <
+                      70 &&
+                    currentRsi >=
+                      70
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "RSI crossed above 70",
+                      tone:
+                        "amber",
+                    });
+                  }
+
+                  if (
+                    savedRsiValue >
+                      30 &&
+                    currentRsi <=
+                      30
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "RSI crossed below 30",
+                      tone:
+                        "amber",
+                    });
+                  }
+
+                  if (
+                    savedRsiValue <
+                      50 &&
+                    currentRsi >=
+                      50
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "RSI crossed above 50",
+                      tone:
+                        "sky",
+                    });
+                  }
+
+                  if (
+                    savedRsiValue >
+                      50 &&
+                    currentRsi <=
+                      50
+                  ) {
+                    alertConditions.push({
+                      label:
+                        "RSI crossed below 50",
+                      tone:
+                        "sky",
+                    });
+                  }
+                }
+
+                if (
+                  savedMacdValue !==
+                    null &&
+                  currentMacd !==
+                    null &&
+                  (
+                    (
+                      savedMacdValue <
+                        0 &&
+                      currentMacd >=
+                        0
+                    ) ||
+                    (
+                      savedMacdValue >
+                        0 &&
+                      currentMacd <=
+                        0
+                    )
+                  )
+                ) {
+                  alertConditions.push({
+                    label:
+                      `MACD histogram flipped ${
+                        currentMacd >=
+                        0
+                          ? "positive"
+                          : "negative"
+                      }`,
+                    tone:
+                      "sky",
+                  });
+                }
+
+                if (
+                  sameExpiration
+                ) {
+                  if (
+                    toNumber(
+                      plan.putOIWall
+                    ) !==
+                      null &&
+                    toNumber(
+                      currentPutWall
+                    ) !==
+                      null &&
+                    Number(
+                      plan.putOIWall
+                    ) !==
+                      Number(
+                        currentPutWall
+                      )
+                  ) {
+                    alertConditions.push({
+                      label:
+                        `Put OI wall moved to ${money(
+                          currentPutWall
+                        )}`,
+                      tone:
+                        "amber",
+                    });
+                  }
+
+                  if (
+                    toNumber(
+                      plan.callOIWall
+                    ) !==
+                      null &&
+                    toNumber(
+                      currentCallWall
+                    ) !==
+                      null &&
+                    Number(
+                      plan.callOIWall
+                    ) !==
+                      Number(
+                        currentCallWall
+                      )
+                  ) {
+                    alertConditions.push({
+                      label:
+                        `Call OI wall moved to ${money(
+                          currentCallWall
+                        )}`,
+                      tone:
+                        "amber",
+                    });
+                  }
+
+                  if (
+                    toNumber(
+                      plan.gammaConcentration
+                    ) !==
+                      null &&
+                    toNumber(
+                      currentGammaLevel
+                    ) !==
+                      null &&
+                    Number(
+                      plan.gammaConcentration
+                    ) !==
+                      Number(
+                        currentGammaLevel
+                      )
+                  ) {
+                    alertConditions.push({
+                      label:
+                        `Gamma concentration moved to ${money(
+                          currentGammaLevel
+                        )}`,
+                      tone:
+                        "violet",
+                    });
+                  }
+                }
+
                 return (
                   <div
                     key={
@@ -5968,6 +6295,80 @@ function SavedStrategyPlansPanel({
                           currentEconomics
                             ? "Live contract tracking"
                             : "Load expiration for contract tracking"}
+                        </div>
+                      </div>
+
+                      <div
+                        className={`mt-3 rounded-lg border p-3 ${
+                          alertConditions.length >
+                          0
+                            ? "border-amber-500/25 bg-amber-500/[0.035]"
+                            : "border-emerald-500/20 bg-emerald-500/[0.025]"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div
+                            className={`text-[9px] uppercase tracking-widest ${
+                              alertConditions.length >
+                              0
+                                ? "text-amber-400"
+                                : "text-emerald-400"
+                            }`}
+                          >
+                            Plan status conditions
+                          </div>
+
+                          <div className="font-mono text-[9px] text-zinc-500">
+                            {alertConditions.length} active
+                          </div>
+                        </div>
+
+                        {alertConditions.length >
+                        0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {alertConditions.map(
+                              (
+                                condition,
+                                index
+                              ) => {
+                                const toneClass =
+                                  condition.tone ===
+                                  "red"
+                                    ? "border-red-500/30 bg-red-500/10 text-red-300"
+                                    : condition.tone ===
+                                        "green"
+                                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                      : condition.tone ===
+                                          "violet"
+                                        ? "border-violet-500/30 bg-violet-500/10 text-violet-300"
+                                        : condition.tone ===
+                                            "sky"
+                                          ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                                          : "border-amber-500/30 bg-amber-500/10 text-amber-300";
+
+                                return (
+                                  <span
+                                    key={
+                                      `${condition.label}-${index}`
+                                    }
+                                    className={`rounded-full border px-2.5 py-1 text-[9px] font-mono ${toneClass}`}
+                                  >
+                                    {condition.label}
+                                  </span>
+                                );
+                              }
+                            )}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-[10px] text-zinc-500">
+                            No tracked condition has changed enough to trigger a visual alert.
+                          </div>
+                        )}
+
+                        <div className="mt-2 text-[9px] text-zinc-600">
+                          Midpoint alert threshold: {midpointThreshold.toFixed(
+                            1
+                          )}% · Conditions update when market data is refreshed.
                         </div>
                       </div>
 
@@ -6237,7 +6638,7 @@ function SavedStrategyPlansPanel({
       )}
 
       <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
-        Saved plans preserve the original snapshot. Tracking compares that snapshot with currently loaded market data; current option midpoint, OI walls, and gamma concentration refresh only when the saved plan's expiration is loaded.
+        Saved plans preserve the original snapshot. Visual alert conditions are evaluated only when the scanner refreshes or the ticker is opened; they are not background push notifications. Current option midpoint, OI walls, and gamma concentration refresh only when the saved plan's expiration is loaded.
       </div>
     </div>
   );
