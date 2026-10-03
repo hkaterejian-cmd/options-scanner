@@ -5121,6 +5121,28 @@ function ManualStrategyBuilder({
     setShortStrike,
   ] = useState("");
 
+  const [
+    savedSpreads,
+    setSavedSpreads,
+  ] = useState([]);
+
+  const [
+    comparisonPrice,
+    setComparisonPrice,
+  ] = useState(
+    spot ?? 0
+  );
+
+  const [
+    comparisonDays,
+    setComparisonDays,
+  ] = useState(0);
+
+  const [
+    comparisonIvChange,
+    setComparisonIvChange,
+  ] = useState(0);
+
   const typedContracts =
     useMemo(
       () =>
@@ -5161,6 +5183,8 @@ function ManualStrategyBuilder({
           );
 
     if (!longContract) {
+      setLongStrike("");
+      setShortStrike("");
       return;
     }
 
@@ -5207,6 +5231,34 @@ function ManualStrategyBuilder({
     optionType,
   ]);
 
+  useEffect(() => {
+    setSavedSpreads([]);
+    setComparisonPrice(
+      Number(
+        spot || 0
+      )
+    );
+    setComparisonDays(0);
+    setComparisonIvChange(0);
+  }, [
+    expiration,
+  ]);
+
+  useEffect(() => {
+    if (
+      savedSpreads.length === 0
+    ) {
+      setComparisonPrice(
+        Number(
+          spot || 0
+        )
+      );
+    }
+  }, [
+    spot,
+    savedSpreads.length,
+  ]);
+
   const longContract =
     typedContracts.find(
       (contract) =>
@@ -5218,17 +5270,25 @@ function ManualStrategyBuilder({
     null;
 
   const validShortContracts =
-    longContract
-      ? typedContracts.filter(
-          (contract) =>
-            optionType ===
-            "call"
-              ? contract.strike >
-                longContract.strike
-              : contract.strike <
-                longContract.strike
-        )
-      : [];
+    useMemo(
+      () =>
+        longContract
+          ? typedContracts.filter(
+              (contract) =>
+                optionType ===
+                "call"
+                  ? contract.strike >
+                    longContract.strike
+                  : contract.strike <
+                    longContract.strike
+            )
+          : [],
+      [
+        typedContracts,
+        longContract,
+        optionType,
+      ]
+    );
 
   useEffect(() => {
     if (
@@ -5272,10 +5332,9 @@ function ManualStrategyBuilder({
         ""
     );
   }, [
-    longStrike,
-    optionType,
     longContract,
     validShortContracts,
+    optionType,
     shortStrike,
   ]);
 
@@ -5350,6 +5409,142 @@ function ManualStrategyBuilder({
         )
       : null;
 
+  const comparisonKey =
+    longContract &&
+    shortContract
+      ? `${optionType}:${longContract.id}:${shortContract.id}`
+      : "";
+
+  const comparisonAlreadySaved =
+    comparisonKey
+      ? savedSpreads.some(
+          (item) =>
+            item.key ===
+            comparisonKey
+        )
+      : false;
+
+  const comparisonFull =
+    savedSpreads.length >=
+    4;
+
+  function addCurrentSpreadToComparison() {
+    if (
+      !manualStrategy ||
+      !economics ||
+      !longContract ||
+      !shortContract ||
+      comparisonAlreadySaved ||
+      comparisonFull
+    ) {
+      return;
+    }
+
+    setSavedSpreads(
+      (current) => [
+        ...current,
+        {
+          key:
+            comparisonKey,
+
+          optionType,
+
+          label:
+            `${optionType.toUpperCase()} ${money(
+              longContract.strike
+            )}/${money(
+              shortContract.strike
+            )}`,
+
+          longStrike:
+            longContract.strike,
+
+          shortStrike:
+            shortContract.strike,
+
+          strategy:
+            manualStrategy,
+
+          economics,
+        },
+      ]
+    );
+  }
+
+  function removeSavedSpread(key) {
+    setSavedSpreads(
+      (current) =>
+        current.filter(
+          (item) =>
+            item.key !==
+            key
+        )
+    );
+  }
+
+  const comparisonRows =
+    savedSpreads.map(
+      (item) => {
+        const scenario =
+          calculateGreekScenario({
+            economics:
+              item.economics,
+
+            spot,
+
+            scenarioPrice:
+              comparisonPrice,
+
+            days:
+              comparisonDays,
+
+            ivPoints:
+              comparisonIvChange,
+          });
+
+        return {
+          ...item,
+          scenario,
+        };
+      }
+    );
+
+  const comparisonQuickPrices = [
+    {
+      label: "-5%",
+      price:
+        spot *
+        0.95,
+    },
+
+    {
+      label: "-2%",
+      price:
+        spot *
+        0.98,
+    },
+
+    {
+      label: "Spot",
+      price:
+        spot,
+    },
+
+    {
+      label: "+2%",
+      price:
+        spot *
+        1.02,
+    },
+
+    {
+      label: "+5%",
+      price:
+        spot *
+        1.05,
+    },
+  ];
+
   if (loading) {
     return (
       <div className="mt-5 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.025] p-4">
@@ -5387,18 +5582,43 @@ function ManualStrategyBuilder({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={
-            chooseDefaults
-          }
-          className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-fuchsia-400/50 hover:text-fuchsia-300"
-        >
-          Reset Legs
-        </button>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={
+              addCurrentSpreadToComparison
+            }
+            disabled={
+              !economics ||
+              comparisonAlreadySaved ||
+              comparisonFull
+            }
+            className={`rounded border px-3 py-1.5 text-[9px] uppercase tracking-widest ${
+              !economics ||
+              comparisonAlreadySaved ||
+              comparisonFull
+                ? "cursor-not-allowed border-zinc-800 text-zinc-700"
+                : "border-fuchsia-400/50 bg-fuchsia-400/10 text-fuchsia-300 hover:border-fuchsia-300"
+            }`}
+          >
+            {comparisonFull
+              ? "Comparison full"
+              : comparisonAlreadySaved
+                ? "Already saved"
+                : `Add to comparison (${savedSpreads.length}/4)`}
+          </button>
 
-      {/* CALL / PUT */}
+          <button
+            type="button"
+            onClick={
+              chooseDefaults
+            }
+            className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-fuchsia-400/50 hover:text-fuchsia-300"
+          >
+            Reset Legs
+          </button>
+        </div>
+      </div>
 
       <div className="mt-4">
         <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
@@ -5441,8 +5661,6 @@ function ManualStrategyBuilder({
           </button>
         </div>
       </div>
-
-      {/* STRIKE SELECTORS */}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <label className="rounded-lg border border-sky-500/20 bg-black/25 p-3">
@@ -5555,8 +5773,6 @@ function ManualStrategyBuilder({
         </label>
       </div>
 
-      {/* CONTRACT DETAILS */}
-
       {longContract &&
         shortContract && (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -5587,8 +5803,6 @@ function ManualStrategyBuilder({
           />
         </div>
       )}
-
-      {/* ECONOMICS */}
 
       {economics && (
         <>
@@ -5686,8 +5900,6 @@ function ManualStrategyBuilder({
             </div>
           </div>
 
-          {/* NET GREEKS */}
-
           <div className="mt-4">
             <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
               Manual spread net Greeks
@@ -5730,8 +5942,6 @@ function ManualStrategyBuilder({
               />
             </div>
           </div>
-
-          {/* LIQUIDITY */}
 
           <div
             className={`mt-4 rounded-lg border px-3 py-3 ${
@@ -5778,7 +5988,462 @@ function ManualStrategyBuilder({
             )}
           </div>
 
-          {/* MANUAL PAYOFF */}
+          <div className="mt-5 rounded-xl border border-indigo-500/25 bg-indigo-500/[0.025] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[9px] uppercase tracking-widest text-indigo-400">
+                  Strategy comparison
+                </div>
+
+                <div className="mt-1 text-sm font-bold">
+                  Compare saved manual spreads
+                </div>
+
+                <div className="mt-1 text-[10px] text-zinc-500">
+                  Save up to four structures from this expiration and compare them under the same scenario.
+                </div>
+              </div>
+
+              {savedSpreads.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSavedSpreads(
+                      []
+                    )
+                  }
+                  className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-red-400/40 hover:text-red-300"
+                >
+                  Clear comparison
+                </button>
+              )}
+            </div>
+
+            {savedSpreads.length ===
+            0 ? (
+              <div className="mt-4 rounded-lg border border-dashed border-zinc-800 bg-black/20 p-4 text-center text-[10px] text-zinc-500">
+                Select a spread above, then click{" "}
+                <span className="text-fuchsia-300">
+                  Add to comparison
+                </span>
+                . Change the strikes or switch between calls and puts to save additional structures.
+              </div>
+            ) : (
+              <>
+                <div className="mt-4">
+                  <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                    Shared comparison scenario
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {comparisonQuickPrices.map(
+                      (item) => (
+                        <button
+                          type="button"
+                          key={
+                            item.label
+                          }
+                          onClick={() =>
+                            setComparisonPrice(
+                              Number(
+                                item.price.toFixed(
+                                  2
+                                )
+                              )
+                            )
+                          }
+                          className="rounded border border-zinc-700 px-2.5 py-1 text-[9px] font-mono text-zinc-400 hover:border-indigo-400/40 hover:text-indigo-300"
+                        >
+                          {item.label}{" "}
+                          {money(
+                            item.price
+                          )}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+                      <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                        Scenario stock price
+                      </div>
+
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={
+                          comparisonPrice
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setComparisonPrice(
+                            event.target.value
+                          )
+                        }
+                        className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                      />
+                    </label>
+
+                    <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+                      <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                        Days forward
+                      </div>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={
+                          comparisonDays
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setComparisonDays(
+                            event.target.value
+                          )
+                        }
+                        className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                      />
+                    </label>
+
+                    <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+                      <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                        IV change
+                      </div>
+
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={
+                          comparisonIvChange
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setComparisonIvChange(
+                            event.target.value
+                          )
+                        }
+                        className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {savedSpreads.map(
+                    (item) => (
+                      <div
+                        key={
+                          item.key
+                        }
+                        className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                      >
+                        <div
+                          className={`text-[9px] uppercase tracking-widest ${
+                            item.optionType ===
+                            "call"
+                              ? "text-emerald-400"
+                              : "text-red-400"
+                          }`}
+                        >
+                          {item.optionType} spread
+                        </div>
+
+                        <div className="mt-1 font-mono text-sm font-bold text-white">
+                          {money(
+                            item.longStrike
+                          )}
+                          {" / "}
+                          {money(
+                            item.shortStrike
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-600">
+                          Debit{" "}
+                          {money(
+                            item.economics.entryDebit
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeSavedSpread(
+                              item.key
+                            )
+                          }
+                          className="mt-2 text-[9px] uppercase tracking-widest text-zinc-600 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )
+                  )}
+                </div>
+
+                <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-800">
+                  <table className="min-w-[1450px] w-full text-[10px] font-mono">
+                    <thead>
+                      <tr className="border-b border-zinc-700 bg-zinc-900/70 text-zinc-500">
+                        <th className="px-3 py-2 text-left">
+                          Structure
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Debit
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Width
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Max Loss
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Max Profit
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Breakeven
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          R/R
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Delta
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Gamma
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Theta
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Vega
+                        </th>
+
+                        <th className="px-3 py-2 text-center">
+                          Liquidity
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Scenario P/L
+                        </th>
+
+                        <th className="px-3 py-2 text-right">
+                          Scenario Return
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {comparisonRows.map(
+                        (item) => {
+                          const e =
+                            item.economics;
+
+                          const scenario =
+                            item.scenario;
+
+                          const scenarioPL =
+                            scenario?.estimatedPL ??
+                            null;
+
+                          const scenarioReturn =
+                            scenario?.estimatedReturn ??
+                            null;
+
+                          return (
+                            <tr
+                              key={
+                                item.key
+                              }
+                              className="border-b border-zinc-900"
+                            >
+                              <td className="px-3 py-3 text-left">
+                                <div
+                                  className={
+                                    item.optionType ===
+                                    "call"
+                                      ? "text-emerald-300"
+                                      : "text-red-300"
+                                  }
+                                >
+                                  {item.optionType.toUpperCase()}
+                                </div>
+
+                                <div className="mt-0.5 text-zinc-200">
+                                  {money(
+                                    item.longStrike
+                                  )}
+                                  {" / "}
+                                  {money(
+                                    item.shortStrike
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-3 py-3 text-right text-amber-300">
+                                {money(
+                                  e.entryDebit
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {money(
+                                  e.width
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right text-red-300">
+                                {dollar(
+                                  e.maxLoss
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right text-emerald-300">
+                                {e.maxProfit !==
+                                  null &&
+                                e.maxProfit >=
+                                  0
+                                  ? dollar(
+                                      e.maxProfit
+                                    )
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {money(
+                                  e.breakeven
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {e.rewardRisk !==
+                                null
+                                  ? `${e.rewardRisk.toFixed(
+                                      2
+                                    )}×`
+                                  : "—"}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {signed(
+                                  e.netDelta
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {signed(
+                                  e.netGamma,
+                                  4
+                                )}
+                              </td>
+
+                              <td
+                                className={`px-3 py-3 text-right ${
+                                  e.netTheta <
+                                  0
+                                    ? "text-red-300"
+                                    : "text-emerald-300"
+                                }`}
+                              >
+                                {signed(
+                                  e.netTheta
+                                )}
+                              </td>
+
+                              <td className="px-3 py-3 text-right">
+                                {signed(
+                                  e.netVega
+                                )}
+                              </td>
+
+                              <td
+                                className={`px-3 py-3 text-center ${
+                                  e.warnings.length >
+                                  0
+                                    ? "text-amber-300"
+                                    : "text-emerald-300"
+                                }`}
+                              >
+                                {e.warnings.length >
+                                0
+                                  ? `${e.warnings.length} warning${
+                                      e.warnings.length ===
+                                      1
+                                        ? ""
+                                        : "s"
+                                    }`
+                                  : "No warning"}
+                              </td>
+
+                              <td
+                                className={`px-3 py-3 text-right font-bold ${
+                                  scenarioPL >
+                                  0
+                                    ? "text-emerald-300"
+                                    : scenarioPL <
+                                        0
+                                      ? "text-red-300"
+                                      : "text-zinc-300"
+                                }`}
+                              >
+                                {signedDollar(
+                                  scenarioPL,
+                                  0
+                                )}
+                              </td>
+
+                              <td
+                                className={`px-3 py-3 text-right ${
+                                  scenarioReturn >
+                                  0
+                                    ? "text-emerald-300"
+                                    : scenarioReturn <
+                                        0
+                                      ? "text-red-300"
+                                      : "text-zinc-300"
+                                }`}
+                              >
+                                {scenarioReturn !==
+                                null
+                                  ? `${
+                                      scenarioReturn >=
+                                      0
+                                        ? "+"
+                                        : ""
+                                    }${scenarioReturn.toFixed(
+                                      1
+                                    )}%`
+                                  : "—"}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+                  Comparison rows are descriptive and use the same displayed quote snapshot and the same hypothetical price, time, and IV inputs. The table does not rank or select a preferred structure.
+                </div>
+              </>
+            )}
+          </div>
 
           <div className="mt-5 border-t border-fuchsia-500/20 pt-4">
             <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
@@ -5836,6 +6501,7 @@ function ManualStrategyBuilder({
     </div>
   );
 }
+
 
 /* =========================================================
    OPTION TABLE CELL
