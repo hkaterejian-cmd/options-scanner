@@ -24,7 +24,8 @@ function toNumber(value) {
     return null;
   }
 
-  const n = Number(value);
+  const n =
+    Number(value);
 
   return Number.isFinite(n)
     ? n
@@ -46,7 +47,8 @@ function clamp(
 }
 
 function money(value) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   return n === null
     ? "—"
@@ -54,7 +56,8 @@ function money(value) {
 }
 
 function dollar(value) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   if (n === null) {
     return "—";
@@ -74,7 +77,8 @@ function signedDollar(
   value,
   digits = 2
 ) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   if (n === null) {
     return "—";
@@ -86,22 +90,28 @@ function signedDollar(
       : "-"
   }$${Math.abs(
     n
-  ).toFixed(digits)}`;
+  ).toFixed(
+    digits
+  )}`;
 }
 
 function pct(value) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   return n === null
     ? "—"
     : `${(
         n *
         100
-      ).toFixed(1)}%`;
+      ).toFixed(
+        1
+      )}%`;
 }
 
 function compact(value) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   if (n === null) {
     return "—";
@@ -114,7 +124,9 @@ function compact(value) {
     return `${(
       n /
       1_000_000
-    ).toFixed(1)}M`;
+    ).toFixed(
+      1
+    )}M`;
   }
 
   if (
@@ -124,7 +136,9 @@ function compact(value) {
     return `${(
       n /
       1_000
-    ).toFixed(1)}K`;
+    ).toFixed(
+      1
+    )}K`;
   }
 
   return String(
@@ -136,7 +150,8 @@ function signed(
   value,
   digits = 3
 ) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   if (n === null) {
     return "—";
@@ -146,11 +161,14 @@ function signed(
     n >= 0
       ? "+"
       : ""
-  }${n.toFixed(digits)}`;
+  }${n.toFixed(
+    digits
+  )}`;
 }
 
 function ratioText(value) {
-  const n = toNumber(value);
+  const n =
+    toNumber(value);
 
   return n === null
     ? "—"
@@ -204,7 +222,9 @@ async function fetchJson(
   const data =
     await response.json();
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       data?.error ||
       `HTTP ${response.status}`
@@ -222,7 +242,8 @@ function unwrapMcp(
     envelope;
 
   if (
-    result?.structuredContent
+    result
+      ?.structuredContent
   ) {
     return result
       .structuredContent;
@@ -236,10 +257,12 @@ function unwrapMcp(
       : [];
 
   for (
-    const block of content
+    const block of
+      content
   ) {
     if (
-      block?.type !== "text" ||
+      block?.type !==
+        "text" ||
       typeof block.text !==
         "string"
     ) {
@@ -266,7 +289,8 @@ async function callRobinhood(
     await fetchJson(
       `${PROXY_BASE}/robinhood/call`,
       {
-        method: "POST",
+        method:
+          "POST",
 
         headers: {
           "Content-Type":
@@ -276,6 +300,7 @@ async function callRobinhood(
         body:
           JSON.stringify({
             toolName,
+
             arguments:
               args,
           }),
@@ -330,7 +355,9 @@ function getExpirations(
 function nearestExpiration(
   dates
 ) {
-  if (!dates.length) {
+  if (
+    !dates.length
+  ) {
     return null;
   }
 
@@ -371,6 +398,7 @@ async function fetchAllInstruments(
   expiration
 ) {
   let cursor;
+
   let pages = 0;
 
   const instruments =
@@ -506,13 +534,15 @@ function buildChainRows(
     new Map();
 
   for (
-    const result of quotes
+    const result of
+      quotes
   ) {
     const quote =
       result?.quote;
 
     if (
-      quote?.instrument_id
+      quote
+        ?.instrument_id
     ) {
       quoteMap.set(
         quote.instrument_id,
@@ -528,12 +558,14 @@ function buildChainRows(
           .map(
             (item) =>
               toNumber(
-                item.strike_price
+                item
+                  .strike_price
               )
           )
           .filter(
             (value) =>
-              value !== null
+              value !==
+              null
           )
       ),
     ].sort(
@@ -553,6 +585,7 @@ function buildChainRows(
   }
 
   let atmIndex = 0;
+
   let bestDistance =
     Infinity;
 
@@ -563,7 +596,8 @@ function buildChainRows(
     ) => {
       const distance =
         Math.abs(
-          strike - price
+          strike -
+          price
         );
 
       if (
@@ -641,8 +675,12 @@ function buildChainRows(
         strike,
         {
           strike,
-          call: null,
-          put: null,
+
+          call:
+            null,
+
+          put:
+            null,
         }
       );
     }
@@ -709,7 +747,8 @@ function buildChainRows(
 
       openInterest:
         toNumber(
-          quote.open_interest
+          quote
+            .open_interest
         ) ?? 0,
 
       breakEven:
@@ -754,8 +793,12 @@ function buildChainRows(
             strike
           ) ?? {
             strike,
-            call: null,
-            put: null,
+
+            call:
+              null,
+
+            put:
+              null,
           }
       ),
   };
@@ -780,7 +823,9 @@ function closestByDelta(
           null
     );
 
-  if (!usable.length) {
+  if (
+    !usable.length
+  ) {
     return null;
   }
 
@@ -804,10 +849,12 @@ function closestByDelta(
 
       return (
         Math.abs(
-          da - target
+          da -
+          target
         ) -
         Math.abs(
-          db - target
+          db -
+          target
         )
       );
     }
@@ -825,7 +872,9 @@ function analyzeSetup(
         (row) =>
           row.call
       )
-      .filter(Boolean);
+      .filter(
+        Boolean
+      );
 
   const puts =
     rows
@@ -833,7 +882,9 @@ function analyzeSetup(
         (row) =>
           row.put
       )
-      .filter(Boolean);
+      .filter(
+        Boolean
+      );
 
   const callVolume =
     calls.reduce(
@@ -894,7 +945,8 @@ function analyzeSetup(
     );
 
   const pcrVolume =
-    callVolume > 0
+    callVolume >
+    0
       ? putVolume /
         callVolume
       : null;
@@ -905,22 +957,30 @@ function analyzeSetup(
         callOI
       : null;
 
-  let bullishScore = 0;
-  let bearishScore = 0;
+  let bullishScore =
+    0;
+
+  let bearishScore =
+    0;
 
   if (
-    data.rsi !== null
+    data.rsi !==
+    null
   ) {
     if (
-      data.rsi >= 55
+      data.rsi >=
+      55
     ) {
-      bullishScore += 1;
+      bullishScore +=
+        1;
     }
 
     if (
-      data.rsi <= 45
+      data.rsi <=
+      45
     ) {
-      bearishScore += 1;
+      bearishScore +=
+        1;
     }
   }
 
@@ -937,7 +997,8 @@ function analyzeSetup(
         .histogram >
       0
     ) {
-      bullishScore += 1;
+      bullishScore +=
+        1;
     }
 
     if (
@@ -945,7 +1006,8 @@ function analyzeSetup(
         .histogram <
       0
     ) {
-      bearishScore += 1;
+      bearishScore +=
+        1;
     }
   }
 
@@ -957,14 +1019,16 @@ function analyzeSetup(
       data.changePct >
       0
     ) {
-      bullishScore += 1;
+      bullishScore +=
+        1;
     }
 
     if (
       data.changePct <
       0
     ) {
-      bearishScore += 1;
+      bearishScore +=
+        1;
     }
   }
 
@@ -975,7 +1039,8 @@ function analyzeSetup(
     "text-amber-300";
 
   if (
-    bullishScore >= 2 &&
+    bullishScore >=
+      2 &&
     bullishScore >
       bearishScore
   ) {
@@ -987,7 +1052,8 @@ function analyzeSetup(
   }
 
   if (
-    bearishScore >= 2 &&
+    bearishScore >=
+      2 &&
     bearishScore >
       bullishScore
   ) {
@@ -1048,11 +1114,15 @@ function analyzeSetup(
 
   const atmIvs =
     [
-      atmRow?.call?.iv,
-      atmRow?.put?.iv,
+      atmRow?.call
+        ?.iv,
+
+      atmRow?.put
+        ?.iv,
     ].filter(
       (value) =>
-        value !== null &&
+        value !==
+          null &&
         value !==
           undefined
     );
@@ -1553,7 +1623,8 @@ function calculateSpreadEconomics(
     if (
       spreadPct !==
         null &&
-      spreadPct >= 15
+      spreadPct >=
+        15
     ) {
       warnings.push(
         `${label}: wide bid/ask (${spreadPct.toFixed(
@@ -1783,8 +1854,7 @@ function buildPayoffSeries(
     ) +
     margin;
 
-  const series =
-    [];
+  const series = [];
 
   for (
     let i = 0;
@@ -1815,6 +1885,162 @@ function buildPayoffSeries(
   }
 
   return series;
+}
+
+/*
+  =========================================================
+  GREEK SCENARIO ENGINE
+  =========================================================
+*/
+
+function calculateGreekScenario({
+  economics,
+  spot,
+  scenarioPrice,
+  days,
+  ivPoints,
+}) {
+  if (
+    !economics ||
+    spot === null ||
+    spot === undefined
+  ) {
+    return null;
+  }
+
+  const targetPrice =
+    toNumber(
+      scenarioPrice
+    ) ??
+    spot;
+
+  const forwardDays =
+    Math.max(
+      0,
+      toNumber(
+        days
+      ) ?? 0
+    );
+
+  const volatilityPoints =
+    toNumber(
+      ivPoints
+    ) ?? 0;
+
+  const priceMove =
+    targetPrice -
+    spot;
+
+  /*
+    Local Greek approximation:
+
+    dV =
+      Δ*dS
+      + 1/2 Γ*dS²
+      + Θ*days
+      + Vega*IV points
+  */
+
+  const deltaComponent =
+    economics.netDelta !==
+      null
+      ? economics.netDelta *
+        priceMove
+      : 0;
+
+  const gammaComponent =
+    economics.netGamma !==
+      null
+      ? 0.5 *
+        economics.netGamma *
+        priceMove *
+        priceMove
+      : 0;
+
+  const thetaComponent =
+    economics.netTheta !==
+      null
+      ? economics.netTheta *
+        forwardDays
+      : 0;
+
+  const vegaComponent =
+    economics.netVega !==
+      null
+      ? economics.netVega *
+        volatilityPoints
+      : 0;
+
+  const estimatedMarkChange =
+    deltaComponent +
+    gammaComponent +
+    thetaComponent +
+    vegaComponent;
+
+  const currentSpreadMark =
+    economics.midpointDebit ??
+    economics.entryDebit ??
+    0;
+
+  const estimatedSpreadValue =
+    clamp(
+      currentSpreadMark +
+        estimatedMarkChange,
+      0,
+      economics.width
+    );
+
+  const estimatedPL =
+    economics.entryDebit !==
+      null
+      ? (
+          estimatedSpreadValue -
+          economics.entryDebit
+        ) *
+        100
+      : null;
+
+  const estimatedReturn =
+    estimatedPL !==
+      null &&
+    economics.maxLoss >
+      0
+      ? (
+          estimatedPL /
+          economics.maxLoss
+        ) *
+        100
+      : null;
+
+  const estimatedDelta =
+    economics.netDelta !==
+      null
+      ? economics.netDelta +
+        (
+          economics.netGamma ??
+          0
+        ) *
+          priceMove
+      : null;
+
+  return {
+    targetPrice,
+    forwardDays,
+    volatilityPoints,
+    priceMove,
+
+    deltaComponent,
+    gammaComponent,
+    thetaComponent,
+    vegaComponent,
+
+    currentSpreadMark,
+    estimatedMarkChange,
+    estimatedSpreadValue,
+    estimatedPL,
+    estimatedReturn,
+    estimatedDelta,
+  };
 }
 
 /*
@@ -1912,13 +2138,23 @@ function PayoffChart({
     return null;
   }
 
-  const width = 900;
-  const height = 260;
+  const width =
+    900;
 
-  const paddingLeft = 58;
-  const paddingRight = 28;
-  const paddingTop = 24;
-  const paddingBottom = 42;
+  const height =
+    260;
+
+  const paddingLeft =
+    58;
+
+  const paddingRight =
+    28;
+
+  const paddingTop =
+    24;
+
+  const paddingBottom =
+    42;
 
   const chartWidth =
     width -
@@ -2024,8 +2260,10 @@ function PayoffChart({
       : null;
 
   const spotX =
-    spot !== null &&
-    spot !== undefined
+    spot !==
+      null &&
+    spot !==
+      undefined
       ? x(
           clamp(
             spot,
@@ -2049,7 +2287,8 @@ function PayoffChart({
 
   const samplePrices =
     [
-      series[0]?.price,
+      series[0]
+        ?.price,
 
       economics
         .longLeg
@@ -2089,7 +2328,8 @@ function PayoffChart({
                   value
               ) <
               0.01
-          ) === index
+          ) ===
+          index
       )
       .sort(
         (a, b) =>
@@ -2331,7 +2571,8 @@ function PayoffChart({
                   );
 
                 const returnOnRisk =
-                  pl !== null &&
+                  pl !==
+                    null &&
                   economics
                     .maxLoss >
                     0
@@ -2426,10 +2667,6 @@ function ScenarioCalculator({
   ] =
     useState(0);
 
-  /*
-    Reset when ticker / strategy / expiration changes.
-  */
-
   useEffect(() => {
     setScenarioPrice(
       Number(
@@ -2447,209 +2684,100 @@ function ScenarioCalculator({
 
   }, [
     spot,
+
     economics
       ?.longLeg
       ?.contract
       ?.id,
+
     economics
       ?.shortLeg
       ?.contract
       ?.id,
   ]);
 
-  if (!economics) {
+  if (
+    !economics
+  ) {
     return null;
   }
 
-  const scenario =
-    toNumber(
-      scenarioPrice
-    ) ??
-    spot;
+  const result =
+    calculateGreekScenario({
+      economics,
 
-  const days =
-    Math.max(
-      0,
-      toNumber(
-        daysForward
-      ) ?? 0
-    );
+      spot,
 
-  /*
-    IV change is entered in VOLATILITY POINTS.
+      scenarioPrice,
 
-    Example:
-    current IV 40%
-    input +5
-    scenario approximately 45%
-  */
+      days:
+        daysForward,
 
-  const ivPoints =
-    toNumber(
-      ivChange
-    ) ?? 0;
+      ivPoints:
+        ivChange,
+    });
 
-  const priceMove =
-    scenario -
-    spot;
-
-  /*
-    Local Greek approximation:
-
-    dV ≈
-      delta*dS
-      + 1/2*gamma*dS²
-      + theta*days
-      + vega*dIV
-
-    All Greeks here are the NET spread Greeks.
-  */
-
-  const deltaComponent =
-    economics.netDelta !==
-    null
-      ? economics.netDelta *
-        priceMove
-      : 0;
-
-  const gammaComponent =
-    economics.netGamma !==
-    null
-      ? 0.5 *
-        economics.netGamma *
-        priceMove *
-        priceMove
-      : 0;
-
-  const thetaComponent =
-    economics.netTheta !==
-    null
-      ? economics.netTheta *
-        days
-      : 0;
-
-  const vegaComponent =
-    economics.netVega !==
-    null
-      ? economics.netVega *
-        ivPoints
-      : 0;
-
-  const estimatedMarkChange =
-    deltaComponent +
-    gammaComponent +
-    thetaComponent +
-    vegaComponent;
-
-  /*
-    Use current mark-to-mark spread value as the
-    starting point of the approximation.
-  */
-
-  const currentSpreadMark =
-    economics.midpointDebit ??
-    economics.entryDebit ??
-    0;
-
-  /*
-    Vertical spread value is bounded approximately
-    between zero and its strike width.
-  */
-
-  const estimatedSpreadValue =
-    clamp(
-      currentSpreadMark +
-        estimatedMarkChange,
-      0,
-      economics.width
-    );
-
-  /*
-    P/L compared with the conservative displayed
-    entry estimate: long ask - short bid.
-  */
-
-  const estimatedPL =
-    economics.entryDebit !==
-    null
-      ? (
-          estimatedSpreadValue -
-          economics.entryDebit
-        ) *
-        100
-      : null;
-
-  const estimatedReturn =
-    estimatedPL !==
-      null &&
-    economics.maxLoss >
-      0
-      ? (
-          estimatedPL /
-          economics.maxLoss
-        ) *
-        100
-      : null;
-
-  /*
-    Delta approximation after stock-price movement:
-
-      Δnew ≈ Δold + Γ*dS
-  */
-
-  const estimatedDelta =
-    economics.netDelta !==
-      null
-      ? economics.netDelta +
-        (
-          economics.netGamma ??
-          0
-        ) *
-          priceMove
-      : null;
+  if (!result) {
+    return null;
+  }
 
   const expirationPL =
     spreadPLAtExpiration(
       strategy,
       economics,
-      scenario
+      result.targetPrice
     );
 
-  const quickScenarios = [
-    {
-      label: "-5%",
-      price:
-        spot *
-        0.95,
-    },
-    {
-      label: "-2%",
-      price:
-        spot *
-        0.98,
-    },
-    {
-      label: "Spot",
-      price:
-        spot,
-    },
-    {
-      label: "+2%",
-      price:
-        spot *
-        1.02,
-    },
-    {
-      label: "+5%",
-      price:
-        spot *
-        1.05,
-    },
-  ];
+  const quickScenarios =
+    [
+      {
+        label:
+          "-5%",
+
+        price:
+          spot *
+          0.95,
+      },
+
+      {
+        label:
+          "-2%",
+
+        price:
+          spot *
+          0.98,
+      },
+
+      {
+        label:
+          "Spot",
+
+        price:
+          spot,
+      },
+
+      {
+        label:
+          "+2%",
+
+        price:
+          spot *
+          1.02,
+      },
+
+      {
+        label:
+          "+5%",
+
+        price:
+          spot *
+          1.05,
+      },
+    ];
 
   return (
     <div className="mt-5 rounded-xl border border-sky-500/20 bg-sky-500/[0.025] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[9px] uppercase tracking-widest text-sky-400">
             Scenario calculator
@@ -2660,7 +2788,7 @@ function ScenarioCalculator({
           </div>
 
           <div className="mt-1 text-[10px] text-zinc-500">
-            Approximate price, time, and IV effects using the spread's current Greeks.
+            Approximate price, time, and IV effects using current spread Greeks.
           </div>
         </div>
 
@@ -2685,8 +2813,6 @@ function ScenarioCalculator({
         </button>
       </div>
 
-      {/* QUICK STOCK SCENARIOS */}
-
       <div className="mt-4 flex flex-wrap gap-2">
         {quickScenarios.map(
           (item) => (
@@ -2704,15 +2830,7 @@ function ScenarioCalculator({
                   )
                 )
               }
-              className={`rounded-lg border px-3 py-1.5 text-[10px] font-mono ${
-                Math.abs(
-                  scenario -
-                  item.price
-                ) <
-                0.02
-                  ? "border-sky-400/60 bg-sky-400/10 text-sky-300"
-                  : "border-zinc-700 bg-black/20 text-zinc-400 hover:border-zinc-500"
-              }`}
+              className="rounded-lg border border-zinc-700 bg-black/20 px-3 py-1.5 text-[10px] font-mono text-zinc-400 hover:border-sky-400/40"
             >
               {item.label}{" "}
               <span className="text-zinc-600">
@@ -2725,57 +2843,50 @@ function ScenarioCalculator({
         )}
       </div>
 
-      {/* INPUTS */}
-
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <label className="block rounded-lg border border-zinc-800 bg-black/25 p-3">
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             Scenario stock price
           </div>
 
-          <div className="mt-2 flex items-center gap-1">
-            <span className="text-sm text-zinc-500">
-              $
-            </span>
-
-            <input
-              type="number"
-              step="0.01"
-              value={
-                scenarioPrice
-              }
-              onChange={(
-                event
-              ) =>
-                setScenarioPrice(
-                  event.target
-                    .value
-                )
-              }
-              className="w-full bg-transparent font-mono text-sm text-white outline-none"
-            />
-          </div>
+          <input
+            type="number"
+            step="0.01"
+            value={
+              scenarioPrice
+            }
+            onChange={(
+              event
+            ) =>
+              setScenarioPrice(
+                event.target
+                  .value
+              )
+            }
+            className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+          />
 
           <div className="mt-1 text-[9px] text-zinc-600">
-            Move from spot:{" "}
+            Move:{" "}
             <span
               className={
-                priceMove > 0
+                result.priceMove >
+                0
                   ? "text-emerald-300"
-                  : priceMove <
+                  : result.priceMove <
                       0
                     ? "text-red-300"
                     : "text-zinc-400"
               }
             >
               {signedDollar(
-                priceMove
+                result.priceMove
               )}
             </span>
           </div>
         </label>
 
-        <label className="block rounded-lg border border-zinc-800 bg-black/25 p-3">
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             Days forward
           </div>
@@ -2797,105 +2908,81 @@ function ScenarioCalculator({
             }
             className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
           />
-
-          <div className="mt-1 text-[9px] text-zinc-600">
-            Uses current net theta as a local approximation.
-          </div>
         </label>
 
-        <label className="block rounded-lg border border-zinc-800 bg-black/25 p-3">
+        <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             IV change
           </div>
 
-          <div className="mt-2 flex items-center gap-1">
-            <input
-              type="number"
-              step="0.5"
-              value={
-                ivChange
-              }
-              onChange={(
-                event
-              ) =>
-                setIvChange(
-                  event.target
-                    .value
-                )
-              }
-              className="w-full bg-transparent font-mono text-sm text-white outline-none"
-            />
-
-            <span className="text-xs text-zinc-500">
-              pts
-            </span>
-          </div>
+          <input
+            type="number"
+            step="0.5"
+            value={
+              ivChange
+            }
+            onChange={(
+              event
+            ) =>
+              setIvChange(
+                event.target
+                  .value
+              )
+            }
+            className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+          />
 
           <div className="mt-1 text-[9px] text-zinc-600">
-            Example: +5 means approximately 40% → 45% IV.
+            Volatility points
           </div>
         </label>
       </div>
-
-      {/* MAIN OUTPUT */}
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <MetricBox
           label="Est. Spread Value"
           value={
             money(
-              estimatedSpreadValue
+              result
+                .estimatedSpreadValue
             )
           }
           valueClass="text-sky-300"
-          subtext={`Current midpoint ${money(
-            currentSpreadMark
-          )}`}
         />
 
         <MetricBox
           label="Approx. P/L"
           value={
             signedDollar(
-              estimatedPL,
+              result.estimatedPL,
               0
             )
           }
           valueClass={
-            estimatedPL >
+            result.estimatedPL >
             0
               ? "text-emerald-300"
-              : estimatedPL <
+              : result.estimatedPL <
                   0
                 ? "text-red-300"
                 : "text-zinc-200"
           }
-          subtext="Versus displayed ask/bid entry"
         />
 
         <MetricBox
           label="Approx. Return on Risk"
           value={
-            estimatedReturn !==
+            result.estimatedReturn !==
             null
               ? `${
-                  estimatedReturn >=
+                  result.estimatedReturn >=
                   0
                     ? "+"
                     : ""
-                }${estimatedReturn.toFixed(
+                }${result.estimatedReturn.toFixed(
                   1
                 )}%`
               : "—"
-          }
-          valueClass={
-            estimatedReturn >
-            0
-              ? "text-emerald-300"
-              : estimatedReturn <
-                  0
-                ? "text-red-300"
-                : "text-zinc-200"
           }
         />
 
@@ -2903,23 +2990,11 @@ function ScenarioCalculator({
           label="Approx. Net Delta"
           value={
             signed(
-              estimatedDelta
+              result.estimatedDelta
             )
-          }
-          subtext={
-            estimatedDelta !==
-            null
-              ? `${signed(
-                  estimatedDelta *
-                    100,
-                  1
-                )} share-equivalent`
-              : undefined
           }
         />
       </div>
-
-      {/* GREEK CONTRIBUTION */}
 
       <div className="mt-4">
         <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
@@ -2931,106 +3006,64 @@ function ScenarioCalculator({
             label="Delta"
             value={
               signedDollar(
-                deltaComponent *
+                result
+                  .deltaComponent *
                   100,
                 0
               )
             }
-            valueClass={
-              deltaComponent >
-              0
-                ? "text-emerald-300"
-                : deltaComponent <
-                    0
-                  ? "text-red-300"
-                  : "text-zinc-300"
-            }
-            subtext={`Δ × stock move`}
           />
 
           <MetricBox
             label="Gamma"
             value={
               signedDollar(
-                gammaComponent *
+                result
+                  .gammaComponent *
                   100,
                 0
               )
             }
-            valueClass={
-              gammaComponent >
-              0
-                ? "text-emerald-300"
-                : gammaComponent <
-                    0
-                  ? "text-red-300"
-                  : "text-zinc-300"
-            }
-            subtext="½ Γ × move²"
           />
 
           <MetricBox
             label="Theta"
             value={
               signedDollar(
-                thetaComponent *
+                result
+                  .thetaComponent *
                   100,
                 0
               )
             }
-            valueClass={
-              thetaComponent >
-              0
-                ? "text-emerald-300"
-                : thetaComponent <
-                    0
-                  ? "text-red-300"
-                  : "text-zinc-300"
-            }
-            subtext={`${days} day${days === 1 ? "" : "s"}`}
           />
 
           <MetricBox
             label="Vega"
             value={
               signedDollar(
-                vegaComponent *
+                result
+                  .vegaComponent *
                   100,
                 0
               )
             }
-            valueClass={
-              vegaComponent >
-              0
-                ? "text-emerald-300"
-                : vegaComponent <
-                    0
-                  ? "text-red-300"
-                  : "text-zinc-300"
-            }
-            subtext={`${ivPoints >= 0 ? "+" : ""}${ivPoints.toFixed(
-              1
-            )} IV pts`}
           />
         </div>
       </div>
-
-      {/* EXPIRATION COMPARISON FOR SAME PRICE */}
 
       <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3">
         <div className="text-[9px] uppercase tracking-widest text-zinc-500">
           If stock expires at scenario price
         </div>
 
-        <div className="mt-2 flex flex-wrap items-baseline gap-3">
-          <span className="text-lg font-mono font-bold text-white">
-            {money(
-              scenario
-            )}
-          </span>
-
+        <div className="mt-2 text-sm font-mono">
+          {money(
+            result.targetPrice
+          )}{" "}
+          →{" "}
           <span
-            className={`text-sm font-mono ${
+            className={
               expirationPL >
               0
                 ? "text-emerald-300"
@@ -3038,23 +3071,293 @@ function ScenarioCalculator({
                     0
                   ? "text-red-300"
                   : "text-zinc-300"
-            }`}
+            }
           >
             {signedDollar(
               expirationPL,
               0
-            )}{" "}
-            at expiration
+            )}
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-1 text-[9px] text-zinc-600">
-          This expiration result uses the vertical spread's intrinsic payoff rather than the Greek approximation.
+/*
+  =========================================================
+  NEW SCENARIO MATRIX
+  =========================================================
+*/
+
+function ScenarioMatrix({
+  economics,
+  spot,
+}) {
+  const [
+    daysForward,
+    setDaysForward,
+  ] =
+    useState(0);
+
+  if (
+    !economics ||
+    spot === null ||
+    spot === undefined
+  ) {
+    return null;
+  }
+
+  const stockMoves =
+    [
+      -5,
+      -2,
+      0,
+      2,
+      5,
+    ];
+
+  const ivChanges =
+    [
+      -5,
+      0,
+      5,
+    ];
+
+  const dayChoices =
+    [
+      0,
+      1,
+      3,
+      5,
+    ];
+
+  return (
+    <div className="mt-5 rounded-xl border border-violet-500/20 bg-violet-500/[0.025] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-violet-400">
+            Scenario matrix
+          </div>
+
+          <div className="mt-1 text-sm font-bold text-white">
+            Price × IV sensitivity
+          </div>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            Approximate spread P/L under multiple stock and volatility scenarios.
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="mr-1 text-[9px] uppercase tracking-widest text-zinc-600">
+            Days forward
+          </span>
+
+          {dayChoices.map(
+            (days) => (
+              <button
+                type="button"
+                key={
+                  days
+                }
+                onClick={() =>
+                  setDaysForward(
+                    days
+                  )
+                }
+                className={`rounded border px-2.5 py-1 text-[10px] font-mono ${
+                  daysForward ===
+                  days
+                    ? "border-violet-400/60 bg-violet-400/10 text-violet-300"
+                    : "border-zinc-700 text-zinc-500 hover:border-zinc-500"
+                }`}
+              >
+                {days}d
+              </button>
+            )
+          )}
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2 text-[9px] leading-relaxed text-zinc-500">
-        Greek scenario estimates are local approximations, not option-pricing forecasts. Delta, gamma, theta, vega, and implied volatility change as the underlying moves and time passes. Large stock or IV changes can make the estimate materially inaccurate.
+      <div className="mt-4 overflow-x-auto rounded-lg border border-zinc-800">
+        <table className="w-full min-w-[650px] text-[10px] font-mono">
+          <thead>
+            <tr className="border-b border-zinc-700 bg-zinc-900">
+              <th className="px-3 py-2 text-left font-normal text-zinc-500">
+                Stock move
+              </th>
+
+              {ivChanges.map(
+                (
+                  iv
+                ) => (
+                  <th
+                    key={
+                      iv
+                    }
+                    className="px-3 py-2 text-center font-normal text-zinc-400"
+                  >
+                    IV{" "}
+                    {iv >=
+                    0
+                      ? "+"
+                      : ""}
+                    {iv} pts
+                  </th>
+                )
+              )}
+            </tr>
+          </thead>
+
+          <tbody>
+            {stockMoves.map(
+              (
+                stockMove
+              ) => {
+                const scenarioPrice =
+                  spot *
+                  (
+                    1 +
+                    stockMove /
+                      100
+                  );
+
+                return (
+                  <tr
+                    key={
+                      stockMove
+                    }
+                    className="border-b border-zinc-900"
+                  >
+                    <td className="px-3 py-3">
+                      <div
+                        className={`font-bold ${
+                          stockMove >
+                          0
+                            ? "text-emerald-300"
+                            : stockMove <
+                                0
+                              ? "text-red-300"
+                              : "text-zinc-200"
+                        }`}
+                      >
+                        {stockMove >
+                        0
+                          ? "+"
+                          : ""}
+                        {stockMove}%
+                      </div>
+
+                      <div className="mt-0.5 text-[9px] text-zinc-600">
+                        {money(
+                          scenarioPrice
+                        )}
+                      </div>
+                    </td>
+
+                    {ivChanges.map(
+                      (
+                        iv
+                      ) => {
+                        const result =
+                          calculateGreekScenario({
+                            economics,
+
+                            spot,
+
+                            scenarioPrice,
+
+                            days:
+                              daysForward,
+
+                            ivPoints:
+                              iv,
+                          });
+
+                        const pl =
+                          result
+                            ?.estimatedPL;
+
+                        const returnOnRisk =
+                          result
+                            ?.estimatedReturn;
+
+                        const cellClass =
+                          pl >
+                          25
+                            ? "bg-emerald-500/[0.10] text-emerald-300"
+                            : pl <
+                                -25
+                              ? "bg-red-500/[0.10] text-red-300"
+                              : "bg-zinc-900/20 text-zinc-300";
+
+                        return (
+                          <td
+                            key={`${stockMove}-${iv}`}
+                            className={`px-3 py-3 text-center ${cellClass}`}
+                          >
+                            <div className="text-sm font-bold">
+                              {signedDollar(
+                                pl,
+                                0
+                              )}
+                            </div>
+
+                            <div className="mt-1 text-[9px] opacity-70">
+                              {returnOnRisk !==
+                              null &&
+                              returnOnRisk !==
+                              undefined
+                                ? `${
+                                    returnOnRisk >=
+                                    0
+                                      ? "+"
+                                      : ""
+                                  }${returnOnRisk.toFixed(
+                                    1
+                                  )}% risk`
+                                : "—"}
+                            </div>
+                          </td>
+                        );
+                      }
+                    )}
+                  </tr>
+                );
+              }
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded border border-zinc-800 bg-black/20 px-3 py-2 text-[9px] text-zinc-500">
+          <span className="text-emerald-300">
+            Green
+          </span>{" "}
+          = positive approximate P/L
+        </div>
+
+        <div className="rounded border border-zinc-800 bg-black/20 px-3 py-2 text-[9px] text-zinc-500">
+          <span className="text-red-300">
+            Red
+          </span>{" "}
+          = negative approximate P/L
+        </div>
+
+        <div className="rounded border border-zinc-800 bg-black/20 px-3 py-2 text-[9px] text-zinc-500">
+          Base spot:{" "}
+          <span className="text-zinc-300">
+            {money(
+              spot
+            )}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2 text-[9px] leading-relaxed text-zinc-500">
+        Matrix values use the current net delta, gamma, theta, and vega as a local approximation. The farther the hypothetical price, time, or IV moves from current conditions, the less reliable the estimate becomes.
       </div>
     </div>
   );
@@ -3081,7 +3384,7 @@ function StrategyPanel({
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             Strategy structure to research
@@ -3215,8 +3518,6 @@ function StrategyPanel({
 
       {economics && (
         <>
-          {/* ECONOMICS */}
-
           <div className="mt-4 border-t border-zinc-800 pt-4">
             <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
               Estimated spread economics
@@ -3309,8 +3610,6 @@ function StrategyPanel({
             </div>
           </div>
 
-          {/* NET GREEKS */}
-
           <div className="mt-4">
             <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
               Net Greeks
@@ -3362,8 +3661,6 @@ function StrategyPanel({
             </div>
           </div>
 
-          {/* PAYOFF */}
-
           <PayoffChart
             strategy={
               strategy
@@ -3375,8 +3672,6 @@ function StrategyPanel({
               spot
             }
           />
-
-          {/* NEW SCENARIO CALCULATOR */}
 
           <ScenarioCalculator
             strategy={
@@ -3390,7 +3685,14 @@ function StrategyPanel({
             }
           />
 
-          {/* CONTRACT QUALITY */}
+          <ScenarioMatrix
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
+          />
 
           <div className="mt-4">
             <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
@@ -3498,8 +3800,6 @@ function StrategyPanel({
           </div>
         </>
       )}
-
-      {/* INVALIDATION */}
 
       <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2">
         <div className="text-[9px] uppercase tracking-widest text-amber-500">
@@ -3613,7 +3913,9 @@ export default function TickerDetailModal({
             }
           );
 
-        if (cancelled) {
+        if (
+          cancelled
+        ) {
           return;
         }
 
@@ -3635,16 +3937,20 @@ export default function TickerDetailModal({
           setExpiration(
             data.expiration
           );
+
         } else {
           setExpiration(
             nearestExpiration(
               dates
-            ) || ""
+            ) ||
+            ""
           );
         }
 
       } catch (err) {
-        if (!cancelled) {
+        if (
+          !cancelled
+        ) {
           setError(
             err.message
           );
@@ -3708,7 +4014,8 @@ export default function TickerDetailModal({
                 )
                 .filter(
                   (value) =>
-                    value !== null
+                    value !==
+                    null
                 )
             ),
           ].sort(
@@ -3716,7 +4023,9 @@ export default function TickerDetailModal({
               a - b
           );
 
-        let atmIndex = 0;
+        let atmIndex =
+          0;
+
         let bestDistance =
           Infinity;
 
@@ -3784,7 +4093,9 @@ export default function TickerDetailModal({
             )
           );
 
-        if (cancelled) {
+        if (
+          cancelled
+        ) {
           return;
         }
 
@@ -3797,14 +4108,18 @@ export default function TickerDetailModal({
         );
 
       } catch (err) {
-        if (!cancelled) {
+        if (
+          !cancelled
+        ) {
           setError(
             err.message
           );
         }
 
       } finally {
-        if (!cancelled) {
+        if (
+          !cancelled
+        ) {
           setLoading(
             false
           );
@@ -4178,7 +4493,7 @@ export default function TickerDetailModal({
                   }
                 />
 
-                {/* CHAIN HEADER */}
+                {/* CHAIN INFO */}
 
                 <div className="my-4 flex gap-4 text-[10px] text-zinc-500">
                   <span>
