@@ -6813,7 +6813,7 @@ function PaperTradeJournal({
       try {
         const state =
           await fetchJson(
-            \`\${PROXY_BASE}/scanner/state\`
+            `${PROXY_BASE}/scanner/state`
           );
 
         if (
@@ -7160,7 +7160,7 @@ function PaperTradeJournal({
       legs: [
         {
           action:
-            \`Long \${trade.optionType}\`,
+            `Long ${trade.optionType}`,
 
           side:
             "long",
@@ -7172,7 +7172,7 @@ function PaperTradeJournal({
 
         {
           action:
-            \`Short \${trade.optionType}\`,
+            `Short ${trade.optionType}`,
 
           side:
             "short",
@@ -7584,9 +7584,9 @@ function PaperTradeJournal({
       currentEntryFill.fill >
         0,
     currentEntryFill
-      ? \`Simulated fill \${money(
+      ? `Simulated fill ${money(
           currentEntryFill.fill
-        )}\`
+        )}`
       : "No valid spread quote"
   );
 
@@ -7602,11 +7602,11 @@ function PaperTradeJournal({
       ),
     paperMaxLoss !==
       null
-      ? \`\${dollar(
+      ? `${dollar(
           paperMaxLoss
-        )} / \${dollar(
+        )} / ${dollar(
           limits.maxLossPerTrade
-        )} limit\`
+        )} limit`
       : "Unavailable"
   );
 
@@ -7623,12 +7623,12 @@ function PaperTradeJournal({
       ),
     paperMaxLoss !==
       null
-      ? \`\${dollar(
+      ? `${dollar(
           totalOpenRisk +
             paperMaxLoss
-        )} after trade / \${dollar(
+        )} after trade / ${dollar(
           limits.maxTotalOpenRisk
-        )} limit\`
+        )} limit`
       : "Unavailable"
   );
 
@@ -7645,12 +7645,12 @@ function PaperTradeJournal({
       ),
     paperMaxLoss !==
       null
-      ? \`\${dollar(
+      ? `${dollar(
           tickerOpenRisk +
             paperMaxLoss
-        )} after trade / \${dollar(
+        )} after trade / ${dollar(
           limits.maxTickerOpenRisk
-        )} limit\`
+        )} limit`
       : "Unavailable"
   );
 
@@ -7658,7 +7658,7 @@ function PaperTradeJournal({
     "Open position count",
     allOpenTrades.length <
       limits.maxOpenPositions,
-    \`\${allOpenTrades.length} open / \${limits.maxOpenPositions} max before new trade\`
+    `${allOpenTrades.length} open / ${limits.maxOpenPositions} max before new trade`
   );
 
   addCheck(
@@ -7667,11 +7667,11 @@ function PaperTradeJournal({
       longContract.openInterest >=
         limits.minOpenInterest,
     longContract
-      ? \`\${compact(
+      ? `${compact(
           longContract.openInterest
-        )} / \${compact(
+        )} / ${compact(
           limits.minOpenInterest
-        )} minimum\`
+        )} minimum`
       : "Unavailable"
   );
 
@@ -7681,11 +7681,11 @@ function PaperTradeJournal({
       shortContract.openInterest >=
         limits.minOpenInterest,
     shortContract
-      ? \`\${compact(
+      ? `${compact(
           shortContract.openInterest
-        )} / \${compact(
+        )} / ${compact(
           limits.minOpenInterest
-        )} minimum\`
+        )} minimum`
       : "Unavailable"
   );
 
@@ -7695,11 +7695,11 @@ function PaperTradeJournal({
       longContract.volume >=
         limits.minVolume,
     longContract
-      ? \`\${compact(
+      ? `${compact(
           longContract.volume
-        )} / \${compact(
+        )} / ${compact(
           limits.minVolume
-        )} minimum\`
+        )} minimum`
       : "Unavailable"
   );
 
@@ -7709,11 +7709,11 @@ function PaperTradeJournal({
       shortContract.volume >=
         limits.minVolume,
     shortContract
-      ? \`\${compact(
+      ? `${compact(
           shortContract.volume
-        )} / \${compact(
+        )} / ${compact(
           limits.minVolume
-        )} minimum\`
+        )} minimum`
       : "Unavailable"
   );
 
@@ -7729,11 +7729,11 @@ function PaperTradeJournal({
       ),
     longSpreadPct !==
       null
-      ? \`\${longSpreadPct.toFixed(
+      ? `${longSpreadPct.toFixed(
           1
-        )}% / \${limits.maxBidAskPct.toFixed(
+        )}% / ${limits.maxBidAskPct.toFixed(
           1
-        )}% max\`
+        )}% max`
       : "Unavailable"
   );
 
@@ -7749,11 +7749,11 @@ function PaperTradeJournal({
       ),
     shortSpreadPct !==
       null
-      ? \`\${shortSpreadPct.toFixed(
+      ? `${shortSpreadPct.toFixed(
           1
-        )}% / \${limits.maxBidAskPct.toFixed(
+        )}% / ${limits.maxBidAskPct.toFixed(
           1
-        )}% max\`
+        )}% max`
       : "Unavailable"
   );
 
@@ -7765,11 +7765,11 @@ function PaperTradeJournal({
         limits.minRewardRisk,
     paperRewardRisk !==
       null
-      ? \`\${paperRewardRisk.toFixed(
+      ? `${paperRewardRisk.toFixed(
           2
-        )}× / \${limits.minRewardRisk.toFixed(
+        )}× / ${limits.minRewardRisk.toFixed(
           2
-        )}× minimum\`
+        )}× minimum`
       : "Unavailable"
   );
 
@@ -8132,7 +8132,7 @@ function PaperTradeJournal({
         typeof crypto.randomUUID ===
           "function"
           ? crypto.randomUUID()
-          : \`\${Date.now()}-\${ticker}-paper\`,
+          : `${Date.now()}-${ticker}-paper`,
 
       status:
         "open",
@@ -8721,9 +8721,9 @@ function PaperTradeJournal({
           value={
             winRate !==
             null
-              ? \`\${winRate.toFixed(
+              ? `${winRate.toFixed(
                   1
-                )}%\`
+                )}%`
               : "—"
           }
           subtext="Descriptive only; not a profitability forecast."
@@ -8966,11 +8966,11 @@ function PaperTradeJournal({
             <div className="mt-1 font-mono text-sm font-bold">
               {longContract &&
               shortContract
-                ? \`\${money(
+                ? `${money(
                     longContract.strike
-                  )} / \${money(
+                  )} / ${money(
                     shortContract.strike
-                  )} \${optionType.toUpperCase()} spread\`
+                  )} ${optionType.toUpperCase()} spread`
                 : "Select both legs"}
             </div>
 
@@ -9077,9 +9077,9 @@ function PaperTradeJournal({
             value={
               paperRewardRisk !==
               null
-                ? \`\${paperRewardRisk.toFixed(
+                ? `${paperRewardRisk.toFixed(
                     2
-                  )}×\`
+                  )}×`
                 : "—"
             }
           />
@@ -9095,20 +9095,20 @@ function PaperTradeJournal({
       </div>
 
       <div
-        className={\`mt-4 rounded-xl border p-4 \${
+        className={`mt-4 rounded-xl border p-4 ${
           riskPassed
             ? "border-emerald-500/20 bg-emerald-500/[0.025]"
             : "border-red-500/25 bg-red-500/[0.035]"
-        }\`}
+        }`}
       >
         <div className="flex items-center justify-between gap-3">
           <div>
             <div
-              className={\`text-[9px] uppercase tracking-widest \${
+              className={`text-[9px] uppercase tracking-widest ${
                 riskPassed
                   ? "text-emerald-400"
                   : "text-red-400"
-              }\`}
+              }`}
             >
               Paper risk manager
             </div>
@@ -9116,12 +9116,12 @@ function PaperTradeJournal({
             <div className="mt-1 text-sm font-bold">
               {riskPassed
                 ? "All hard checks passed"
-                : \`\${blockingChecks.length} hard check\${
+                : `${blockingChecks.length} hard check${
                     blockingChecks.length ===
                     1
                       ? ""
                       : "s"
-                  } blocking entry\`}
+                  } blocking entry`}
             </div>
           </div>
 
@@ -9149,18 +9149,18 @@ function PaperTradeJournal({
                 key={
                   check.name
                 }
-                className={\`rounded-lg border px-3 py-2 \${
+                className={`rounded-lg border px-3 py-2 ${
                   check.passed
                     ? "border-emerald-500/15 bg-emerald-500/[0.02]"
                     : "border-red-500/25 bg-red-500/[0.04]"
-                }\`}
+                }`}
               >
                 <div
-                  className={\`text-[9px] uppercase tracking-widest \${
+                  className={`text-[9px] uppercase tracking-widest ${
                     check.passed
                       ? "text-emerald-400"
                       : "text-red-400"
-                  }\`}
+                  }`}
                 >
                   {check.passed
                     ? "PASS"
@@ -9380,12 +9380,12 @@ function PaperTradeJournal({
                         value={money(
                           trade.entryPrice
                         )}
-                        subtext={\`Mid \${money(
+                        subtext={`Mid ${money(
                           trade.entryTheoreticalMidpoint ??
                           trade.entryPrice
-                        )} · slip \${money(
+                        )} · slip ${money(
                           trade.entrySlippage
-                        )}\`}
+                        )}`}
                       />
 
                       <MetricBox
@@ -9393,9 +9393,9 @@ function PaperTradeJournal({
                         value={money(
                           currentMidpoint
                         )}
-                        subtext={\`Liquidation \${money(
+                        subtext={`Liquidation ${money(
                           liquidationPrice
-                        )}\`}
+                        )}`}
                       />
 
                       <MetricBox
@@ -9418,23 +9418,23 @@ function PaperTradeJournal({
                             trade.unrealizedReturnPct
                           ) !==
                           null
-                            ? \`\${signed(
+                            ? `${signed(
                                 trade.unrealizedReturnPct,
                                 1
-                              )}% on paper cost\`
+                              )}% on paper cost`
                             : "—"
                         }
                       />
 
                       <MetricBox
                         label="MFE / MAE"
-                        value={\`\${signedDollar(
+                        value={`${signedDollar(
                           trade.maxFavorablePL,
                           0
-                        )} / \${signedDollar(
+                        )} / ${signedDollar(
                           trade.maxAdversePL,
                           0
-                        )}\`}
+                        )}`}
                         subtext="Max favorable / adverse excursion"
                       />
 
@@ -9463,11 +9463,11 @@ function PaperTradeJournal({
 
                       <MetricBox
                         label="Entry OI Walls"
-                        value={\`\${money(
+                        value={`${money(
                           trade.entryPutOIWall
-                        )} / \${money(
+                        )} / ${money(
                           trade.entryCallOIWall
-                        )}\`}
+                        )}`}
                         subtext="Put / Call"
                       />
 
@@ -9689,7 +9689,7 @@ function PaperTradeJournal({
                         </td>
 
                         <td
-                          className={\`px-3 py-2 text-right \${
+                          className={`px-3 py-2 text-right ${
                             toNumber(
                               trade.realizedPL
                             ) >
@@ -9701,7 +9701,7 @@ function PaperTradeJournal({
                                   0
                                 ? "text-red-300"
                                 : "text-zinc-300"
-                          }\`}
+                          }`}
                         >
                           {signedDollar(
                             trade.realizedPL,
@@ -9728,7 +9728,7 @@ function PaperTradeJournal({
                             trade.holdingMinutes
                           ) !==
                           null
-                            ? \`\${trade.holdingMinutes}m\`
+                            ? `${trade.holdingMinutes}m`
                             : "—"}
                         </td>
 
