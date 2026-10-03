@@ -4,7 +4,7 @@ import ExpirationComparison from "./ExpirationComparison";
 const PROXY_BASE = "http://127.0.0.1:3001";
 
 /* =========================================================
-   HELPERS
+   BASIC HELPERS
 ========================================================= */
 
 function toNumber(value) {
@@ -24,6 +24,7 @@ function money(value) {
 
 function dollar(value) {
   const n = toNumber(value);
+
   if (n === null) return "—";
 
   return new Intl.NumberFormat(undefined, {
@@ -35,6 +36,7 @@ function dollar(value) {
 
 function signedDollar(value, digits = 2) {
   const n = toNumber(value);
+
   if (n === null) return "—";
 
   return `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(digits)}`;
@@ -57,6 +59,7 @@ function compact(value) {
 
 function signed(value, digits = 3) {
   const n = toNumber(value);
+
   if (n === null) return "—";
 
   return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}`;
@@ -104,11 +107,11 @@ function distancePct(level, spot) {
 }
 
 function distanceText(level, spot) {
-  const value = distancePct(level, spot);
+  const n = distancePct(level, spot);
 
-  if (value === null) return "—";
+  if (n === null) return "—";
 
-  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}% from spot`;
+  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}% from spot`;
 }
 
 function flowDescriptor(ratio) {
@@ -139,13 +142,6 @@ function flowDescriptor(ratio) {
   };
 }
 
-/*
-  Automatically spaces chart labels vertically.
-
-  The horizontal line stays at its true price.
-  Only the text label moves, with a connector showing
-  which level it belongs to.
-*/
 function layoutChartLabels(labels, minY, maxY, gap = 17) {
   if (!labels.length) return [];
 
@@ -225,11 +221,9 @@ function unwrapMcp(envelope) {
 async function callRobinhood(toolName, args) {
   const envelope = await fetchJson(`${PROXY_BASE}/robinhood/call`, {
     method: "POST",
-
     headers: {
       "Content-Type": "application/json",
     },
-
     body: JSON.stringify({
       toolName,
       arguments: args,
@@ -246,7 +240,6 @@ async function callRobinhood(toolName, args) {
 function getExpirations(payload) {
   const data = payload?.data ?? payload ?? {};
   const chains = data.chains ?? [];
-
   const dates = new Set();
 
   for (const chain of chains) {
@@ -283,7 +276,6 @@ async function fetchAllInstruments(ticker, expiration) {
       chain_symbol: ticker,
       expiration_dates: expiration,
       state: "active",
-
       ...(cursor ? { cursor } : {}),
     });
 
@@ -339,8 +331,8 @@ async function fetchOptionQuotesProgressive(
 
   const batches = chunks(instrumentIds, 20);
   const concurrency = 4;
-  const results = [];
 
+  const results = [];
   let completedContracts = 0;
 
   for (let i = 0; i < batches.length; i += concurrency) {
@@ -424,6 +416,18 @@ function normalizeContract(instrument, quoteMap) {
   };
 }
 
+function buildNormalizedContracts(instruments, quotes) {
+  if (!instruments.length || !quotes.length) return [];
+
+  const quoteMap = createQuoteMap(quotes);
+
+  return instruments
+    .map((instrument) => normalizeContract(instrument, quoteMap))
+    .filter(Boolean)
+    .filter((contract) => contract.strike !== null)
+    .sort((a, b) => a.strike - b.strike);
+}
+
 function getAllStrikes(instruments) {
   return [
     ...new Set(
@@ -468,7 +472,7 @@ function getVisibleInstruments(instruments, price, strikeRange) {
 }
 
 /* =========================================================
-   VISIBLE OPTION CHAIN
+   VISIBLE CHAIN
 ========================================================= */
 
 function buildChainRows(instruments, quotes, price, strikeRange) {
@@ -557,14 +561,9 @@ function highestBy(list, field) {
 }
 
 function buildFullChainAnalysis(instruments, quotes, spot) {
-  if (!instruments.length || !quotes.length) return null;
+  const contracts = buildNormalizedContracts(instruments, quotes);
 
-  const quoteMap = createQuoteMap(quotes);
-
-  const contracts = instruments
-    .map((instrument) => normalizeContract(instrument, quoteMap))
-    .filter(Boolean)
-    .filter((contract) => contract.strike !== null);
+  if (!contracts.length) return null;
 
   const calls = contracts.filter((contract) => contract.type === "call");
   const puts = contracts.filter((contract) => contract.type === "put");
@@ -620,7 +619,8 @@ function buildFullChainAnalysis(instruments, quotes, spot) {
     const row = strikeMap.get(contract.strike);
 
     row.gammaOIProxy +=
-      Math.abs(contract.gamma ?? 0) * contract.openInterest;
+      Math.abs(contract.gamma ?? 0) *
+      contract.openInterest;
 
     row.totalOI += contract.openInterest;
     row.totalVolume += contract.volume;
@@ -640,7 +640,9 @@ function buildFullChainAnalysis(instruments, quotes, spot) {
 
   const gammaConcentration = strikeRows.length
     ? [...strikeRows].sort(
-        (a, b) => b.gammaOIProxy - a.gammaOIProxy
+        (a, b) =>
+          b.gammaOIProxy -
+          a.gammaOIProxy
       )[0]
     : null;
 
@@ -655,11 +657,19 @@ function buildFullChainAnalysis(instruments, quotes, spot) {
       : [];
 
   const lowerOIConcentration = lowerRows.length
-    ? [...lowerRows].sort((a, b) => b.totalOI - a.totalOI)[0]
+    ? [...lowerRows].sort(
+        (a, b) =>
+          b.totalOI -
+          a.totalOI
+      )[0]
     : null;
 
   const upperOIConcentration = upperRows.length
-    ? [...upperRows].sort((a, b) => b.totalOI - a.totalOI)[0]
+    ? [...upperRows].sort(
+        (a, b) =>
+          b.totalOI -
+          a.totalOI
+      )[0]
     : null;
 
   return {
@@ -831,16 +841,26 @@ function findRecentSwingLow(bars, window = 2) {
 
 function closestByDelta(contracts, target, absolute = false) {
   const usable = contracts.filter(
-    (contract) => contract && contract.delta !== null
+    (contract) =>
+      contract &&
+      contract.delta !== null
   );
 
   if (!usable.length) return null;
 
   return [...usable].sort((a, b) => {
-    const da = absolute ? Math.abs(a.delta) : a.delta;
-    const db = absolute ? Math.abs(b.delta) : b.delta;
+    const da = absolute
+      ? Math.abs(a.delta)
+      : a.delta;
 
-    return Math.abs(da - target) - Math.abs(db - target);
+    const db = absolute
+      ? Math.abs(b.delta)
+      : b.delta;
+
+    return (
+      Math.abs(da - target) -
+      Math.abs(db - target)
+    );
   })[0];
 }
 
@@ -849,27 +869,42 @@ function analyzeSetup(data, rows, atmStrike) {
   const puts = rows.map((row) => row.put).filter(Boolean);
 
   const callVolume = calls.reduce(
-    (total, contract) => total + (contract.volume || 0),
+    (total, contract) =>
+      total +
+      (contract.volume || 0),
     0
   );
 
   const putVolume = puts.reduce(
-    (total, contract) => total + (contract.volume || 0),
+    (total, contract) =>
+      total +
+      (contract.volume || 0),
     0
   );
 
   const callOI = calls.reduce(
-    (total, contract) => total + (contract.openInterest || 0),
+    (total, contract) =>
+      total +
+      (contract.openInterest || 0),
     0
   );
 
   const putOI = puts.reduce(
-    (total, contract) => total + (contract.openInterest || 0),
+    (total, contract) =>
+      total +
+      (contract.openInterest || 0),
     0
   );
 
-  const pcrVolume = callVolume > 0 ? putVolume / callVolume : null;
-  const pcrOI = callOI > 0 ? putOI / callOI : null;
+  const pcrVolume =
+    callVolume > 0
+      ? putVolume / callVolume
+      : null;
+
+  const pcrOI =
+    callOI > 0
+      ? putOI / callOI
+      : null;
 
   let bullishScore = 0;
   let bearishScore = 0;
@@ -895,67 +930,112 @@ function analyzeSetup(data, rows, atmStrike) {
   let momentum = "Mixed / Neutral";
   let momentumTextClass = "text-amber-300";
 
-  if (bullishScore >= 2 && bullishScore > bearishScore) {
+  if (
+    bullishScore >= 2 &&
+    bullishScore > bearishScore
+  ) {
     momentum = "Bullish";
     momentumTextClass = "text-emerald-300";
   }
 
-  if (bearishScore >= 2 && bearishScore > bullishScore) {
+  if (
+    bearishScore >= 2 &&
+    bearishScore > bullishScore
+  ) {
     momentum = "Bearish";
     momentumTextClass = "text-red-300";
   }
 
-  const allContracts = [...calls, ...puts];
+  const allContracts = [
+    ...calls,
+    ...puts,
+  ];
 
   const gammaLeader =
     allContracts
-      .filter((contract) => contract.gamma !== null)
+      .filter(
+        (contract) =>
+          contract.gamma !== null
+      )
       .sort(
         (a, b) =>
           Math.abs(b.gamma) -
           Math.abs(a.gamma)
-      )[0] ?? null;
+      )[0] ??
+    null;
 
   const thetaLeader =
     allContracts
-      .filter((contract) => contract.theta !== null)
+      .filter(
+        (contract) =>
+          contract.theta !== null
+      )
       .sort(
         (a, b) =>
           Math.abs(b.theta) -
           Math.abs(a.theta)
-      )[0] ?? null;
+      )[0] ??
+    null;
 
-  const atmRow = rows.find((row) => row.strike === atmStrike);
+  const atmRow =
+    rows.find(
+      (row) =>
+        row.strike === atmStrike
+    );
 
   const atmIvs = [
     atmRow?.call?.iv,
     atmRow?.put?.iv,
   ].filter(
-    (value) => value !== null && value !== undefined
+    (value) =>
+      value !== null &&
+      value !== undefined
   );
 
   const atmIV = atmIvs.length
-    ? atmIvs.reduce((total, value) => total + value, 0) /
+    ? atmIvs.reduce(
+        (total, value) =>
+          total + value,
+        0
+      ) /
       atmIvs.length
     : data.atmIV;
 
-  const lowerRows = rows.filter((row) => row.strike < data.price);
-  const upperRows = rows.filter((row) => row.strike > data.price);
+  const lowerRows =
+    rows.filter(
+      (row) =>
+        row.strike < data.price
+    );
 
-  const lowerReference = lowerRows.length
-    ? lowerRows[lowerRows.length - 1].strike
-    : null;
+  const upperRows =
+    rows.filter(
+      (row) =>
+        row.strike > data.price
+    );
 
-  const upperReference = upperRows.length
-    ? upperRows[0].strike
-    : null;
+  const lowerReference =
+    lowerRows.length
+      ? lowerRows[
+          lowerRows.length - 1
+        ].strike
+      : null;
 
-  const flow = flowDescriptor(pcrVolume);
+  const upperReference =
+    upperRows.length
+      ? upperRows[0].strike
+      : null;
+
+  const flow =
+    flowDescriptor(
+      pcrVolume
+    );
 
   let strategy = {
-    name: "No clear directional structure",
+    name:
+      "No clear directional structure",
 
-    bias: "Neutral",
+    bias:
+      "Neutral",
 
     description:
       "The directional signals are not sufficiently aligned for the rule-based spread engine.",
@@ -967,26 +1047,39 @@ function analyzeSetup(data, rows, atmStrike) {
   };
 
   if (momentum === "Bullish") {
-    const longCall = closestByDelta(calls, 0.55);
+    const longCall =
+      closestByDelta(
+        calls,
+        0.55
+      );
 
-    const higherCalls = calls.filter(
-      (contract) =>
-        longCall &&
-        contract.strike > longCall.strike
-    );
+    const higherCalls =
+      calls.filter(
+        (contract) =>
+          longCall &&
+          contract.strike >
+            longCall.strike
+      );
 
-    const shortCall = closestByDelta(higherCalls, 0.3);
+    const shortCall =
+      closestByDelta(
+        higherCalls,
+        0.3
+      );
 
     strategy = {
-      name: "Bull Call Debit Spread",
+      name:
+        "Bull Call Debit Spread",
 
-      bias: "Bullish",
+      bias:
+        "Bullish",
 
       description:
         "The rule engine found positive momentum alignment. The defined-risk debit spread reduces premium and theta exposure relative to the long call alone.",
 
       legs:
-        longCall && shortCall
+        longCall &&
+        shortCall
           ? [
               {
                 action: "Long call",
@@ -1008,26 +1101,41 @@ function analyzeSetup(data, rows, atmStrike) {
   }
 
   if (momentum === "Bearish") {
-    const longPut = closestByDelta(puts, 0.55, true);
+    const longPut =
+      closestByDelta(
+        puts,
+        0.55,
+        true
+      );
 
-    const lowerPuts = puts.filter(
-      (contract) =>
-        longPut &&
-        contract.strike < longPut.strike
-    );
+    const lowerPuts =
+      puts.filter(
+        (contract) =>
+          longPut &&
+          contract.strike <
+            longPut.strike
+      );
 
-    const shortPut = closestByDelta(lowerPuts, 0.3, true);
+    const shortPut =
+      closestByDelta(
+        lowerPuts,
+        0.3,
+        true
+      );
 
     strategy = {
-      name: "Bear Put Debit Spread",
+      name:
+        "Bear Put Debit Spread",
 
-      bias: "Bearish",
+      bias:
+        "Bearish",
 
       description:
         "The rule engine found negative momentum alignment. The defined-risk debit spread reduces premium and theta exposure relative to the long put alone.",
 
       legs:
-        longPut && shortPut
+        longPut &&
+        shortPut
           ? [
               {
                 action: "Long put",
@@ -1061,8 +1169,11 @@ function analyzeSetup(data, rows, atmStrike) {
     pcrVolume,
     pcrOI,
 
-    flowLabel: flow.label,
-    flowClass: flow.className,
+    flowLabel:
+      flow.label,
+
+    flowClass:
+      flow.className,
 
     gammaLeader,
     thetaLeader,
@@ -1083,9 +1194,14 @@ function analyzeSetup(data, rows, atmStrike) {
 function legSpreadPercent(contract) {
   if (!contract) return null;
 
-  const bid = toNumber(contract.bid);
-  const ask = toNumber(contract.ask);
-  const mark = toNumber(contract.mark);
+  const bid =
+    toNumber(contract.bid);
+
+  const ask =
+    toNumber(contract.ask);
+
+  const mark =
+    toNumber(contract.mark);
 
   if (
     bid === null ||
@@ -1096,24 +1212,45 @@ function legSpreadPercent(contract) {
     return null;
   }
 
-  return ((ask - bid) / mark) * 100;
+  return (
+    ((ask - bid) / mark) *
+    100
+  );
 }
 
 function calculateSpreadEconomics(strategy) {
-  if (!strategy || strategy.legs?.length !== 2) return null;
+  if (
+    !strategy ||
+    strategy.legs?.length !== 2
+  ) {
+    return null;
+  }
 
-  const longLeg = strategy.legs.find((leg) => leg.side === "long");
-  const shortLeg = strategy.legs.find((leg) => leg.side === "short");
+  const longLeg =
+    strategy.legs.find(
+      (leg) =>
+        leg.side === "long"
+    );
+
+  const shortLeg =
+    strategy.legs.find(
+      (leg) =>
+        leg.side === "short"
+    );
 
   if (!longLeg || !shortLeg) return null;
 
-  const longContract = longLeg.contract;
-  const shortContract = shortLeg.contract;
+  const longContract =
+    longLeg.contract;
 
-  const width = Math.abs(
-    shortContract.strike -
+  const shortContract =
+    shortLeg.contract;
+
+  const width =
+    Math.abs(
+      shortContract.strike -
       longContract.strike
-  );
+    );
 
   const entryDebit =
     longContract.ask !== null &&
@@ -1202,23 +1339,44 @@ function calculateSpreadEconomics(strategy) {
         shortContract.vega
       : null;
 
-  const longSpreadPct = legSpreadPercent(longContract);
-  const shortSpreadPct = legSpreadPercent(shortContract);
+  const longSpreadPct =
+    legSpreadPercent(
+      longContract
+    );
+
+  const shortSpreadPct =
+    legSpreadPercent(
+      shortContract
+    );
 
   const warnings = [];
 
-  function checkLeg(label, contract, spreadPct) {
+  function checkLeg(
+    label,
+    contract,
+    spreadPct
+  ) {
     if (contract.bid === 0) {
-      warnings.push(`${label}: no active bid shown`);
-    }
-
-    if (spreadPct !== null && spreadPct >= 15) {
       warnings.push(
-        `${label}: wide bid/ask (${spreadPct.toFixed(1)}% of mark)`
+        `${label}: no active bid shown`
       );
     }
 
-    if (contract.openInterest < 100) {
+    if (
+      spreadPct !== null &&
+      spreadPct >= 15
+    ) {
+      warnings.push(
+        `${label}: wide bid/ask (${spreadPct.toFixed(
+          1
+        )}% of mark)`
+      );
+    }
+
+    if (
+      contract.openInterest <
+      100
+    ) {
       warnings.push(
         `${label}: low open interest (${compact(
           contract.openInterest
@@ -1226,7 +1384,10 @@ function calculateSpreadEconomics(strategy) {
       );
     }
 
-    if (contract.volume < 20) {
+    if (
+      contract.volume <
+      20
+    ) {
       warnings.push(
         `${label}: low displayed volume (${compact(
           contract.volume
@@ -1275,10 +1436,14 @@ function calculateSpreadEconomics(strategy) {
 }
 
 /* =========================================================
-   PAYOFF
+   EXPIRATION PAYOFF
 ========================================================= */
 
-function spreadPLAtExpiration(strategy, economics, stockPrice) {
+function spreadPLAtExpiration(
+  strategy,
+  economics,
+  stockPrice
+) {
   if (
     !economics ||
     stockPrice === null ||
@@ -1287,12 +1452,21 @@ function spreadPLAtExpiration(strategy, economics, stockPrice) {
     return null;
   }
 
-  const longContract = economics.longLeg.contract;
-  const shortContract = economics.shortLeg.contract;
+  const longContract =
+    economics.longLeg.contract;
 
-  const debit = economics.entryDebit;
+  const shortContract =
+    economics.shortLeg.contract;
 
-  if (debit === null || debit <= 0) return null;
+  const debit =
+    economics.entryDebit;
+
+  if (
+    debit === null ||
+    debit <= 0
+  ) {
+    return null;
+  }
 
   let intrinsic = 0;
 
@@ -1324,10 +1498,17 @@ function spreadPLAtExpiration(strategy, economics, stockPrice) {
       );
   }
 
-  return (intrinsic - debit) * 100;
+  return (
+    intrinsic -
+    debit
+  ) * 100;
 }
 
-function buildPayoffSeries(strategy, economics, currentSpot) {
+function buildPayoffSeries(
+  strategy,
+  economics,
+  currentSpot
+) {
   if (
     !economics ||
     currentSpot === null ||
@@ -1336,27 +1517,45 @@ function buildPayoffSeries(strategy, economics, currentSpot) {
     return [];
   }
 
-  const longStrike = economics.longLeg.contract.strike;
-  const shortStrike = economics.shortLeg.contract.strike;
+  const longStrike =
+    economics.longLeg.contract.strike;
 
-  const lowStrike = Math.min(longStrike, shortStrike);
-  const highStrike = Math.max(longStrike, shortStrike);
+  const shortStrike =
+    economics.shortLeg.contract.strike;
 
-  const spreadWidth = Math.abs(highStrike - lowStrike);
-
-  const margin = Math.max(
-    spreadWidth * 1.5,
-    currentSpot * 0.04,
-    5
-  );
-
-  const minPrice = Math.max(
-    0,
+  const lowStrike =
     Math.min(
-      lowStrike,
-      currentSpot
-    ) - margin
-  );
+      longStrike,
+      shortStrike
+    );
+
+  const highStrike =
+    Math.max(
+      longStrike,
+      shortStrike
+    );
+
+  const spreadWidth =
+    Math.abs(
+      highStrike -
+      lowStrike
+    );
+
+  const margin =
+    Math.max(
+      spreadWidth * 1.5,
+      currentSpot * 0.04,
+      5
+    );
+
+  const minPrice =
+    Math.max(
+      0,
+      Math.min(
+        lowStrike,
+        currentSpot
+      ) - margin
+    );
 
   const maxPrice =
     Math.max(
@@ -1366,7 +1565,11 @@ function buildPayoffSeries(strategy, economics, currentSpot) {
 
   const series = [];
 
-  for (let i = 0; i <= 60; i++) {
+  for (
+    let i = 0;
+    i <= 60;
+    i++
+  ) {
     const price =
       minPrice +
       ((maxPrice - minPrice) * i) /
@@ -1375,11 +1578,12 @@ function buildPayoffSeries(strategy, economics, currentSpot) {
     series.push({
       price,
 
-      pl: spreadPLAtExpiration(
-        strategy,
-        economics,
-        price
-      ),
+      pl:
+        spreadPLAtExpiration(
+          strategy,
+          economics,
+          price
+        ),
     });
   }
 
@@ -1387,7 +1591,7 @@ function buildPayoffSeries(strategy, economics, currentSpot) {
 }
 
 /* =========================================================
-   SCENARIO ENGINE
+   GREEK SCENARIO
 ========================================================= */
 
 function calculateGreekScenario({
@@ -1409,16 +1613,18 @@ function calculateGreekScenario({
     toNumber(scenarioPrice) ??
     spot;
 
-  const forwardDays = Math.max(
-    0,
-    toNumber(days) ?? 0
-  );
+  const forwardDays =
+    Math.max(
+      0,
+      toNumber(days) ?? 0
+    );
 
   const volatilityPoints =
     toNumber(ivPoints) ?? 0;
 
   const priceMove =
-    targetPrice - spot;
+    targetPrice -
+    spot;
 
   const deltaComponent =
     economics.netDelta !== null
@@ -1567,8 +1773,115 @@ function MetricBox({
   );
 }
 
+function ContractCard({
+  title,
+  contract,
+  accentClass,
+}) {
+  if (!contract) return null;
+
+  const spreadPct =
+    legSpreadPercent(contract);
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+      <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+        {title}
+      </div>
+
+      <div
+        className={`mt-1 text-lg font-mono font-bold ${accentClass}`}
+      >
+        {money(contract.strike)}{" "}
+        {contract.type.toUpperCase()}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-zinc-400 sm:grid-cols-4">
+        <span>
+          Bid{" "}
+          <b className="text-zinc-200">
+            {money(contract.bid)}
+          </b>
+        </span>
+
+        <span>
+          Ask{" "}
+          <b className="text-zinc-200">
+            {money(contract.ask)}
+          </b>
+        </span>
+
+        <span>
+          Mark{" "}
+          <b className="text-zinc-200">
+            {money(contract.mark)}
+          </b>
+        </span>
+
+        <span>
+          IV{" "}
+          <b className="text-zinc-200">
+            {pct(contract.iv)}
+          </b>
+        </span>
+
+        <span>
+          Δ{" "}
+          <b className="text-zinc-200">
+            {signed(contract.delta)}
+          </b>
+        </span>
+
+        <span>
+          Γ{" "}
+          <b className="text-zinc-200">
+            {signed(contract.gamma, 4)}
+          </b>
+        </span>
+
+        <span>
+          Θ{" "}
+          <b className="text-zinc-200">
+            {signed(contract.theta)}
+          </b>
+        </span>
+
+        <span>
+          Vega{" "}
+          <b className="text-zinc-200">
+            {signed(contract.vega)}
+          </b>
+        </span>
+
+        <span>
+          Volume{" "}
+          <b className="text-zinc-200">
+            {compact(contract.volume)}
+          </b>
+        </span>
+
+        <span>
+          OI{" "}
+          <b className="text-zinc-200">
+            {compact(contract.openInterest)}
+          </b>
+        </span>
+
+        <span className="col-span-2">
+          Bid/ask width{" "}
+          <b className="text-zinc-200">
+            {spreadPct !== null
+              ? `${spreadPct.toFixed(1)}%`
+              : "—"}
+          </b>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================
-   FULL CHAIN PANEL
+   FULL CHAIN FLOW PANEL
 ========================================================= */
 
 function FullChainFlowPanel({
@@ -1596,7 +1909,7 @@ function FullChainFlowPanel({
               Full-chain options flow
             </div>
 
-            <div className="mt-1 text-sm font-bold text-white">
+            <div className="mt-1 text-sm font-bold">
               Analyzing {dateLabel(expiration)}
             </div>
           </div>
@@ -1630,8 +1943,15 @@ function FullChainFlowPanel({
 
   if (!analysis) return null;
 
-  const volumeFlow = flowDescriptor(analysis.pcrVolume);
-  const oiFlow = flowDescriptor(analysis.pcrOI);
+  const volumeFlow =
+    flowDescriptor(
+      analysis.pcrVolume
+    );
+
+  const oiFlow =
+    flowDescriptor(
+      analysis.pcrOI
+    );
 
   return (
     <div className="mb-4 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.025] p-4">
@@ -1659,42 +1979,62 @@ function FullChainFlowPanel({
       <div className="mt-4 grid gap-2 lg:grid-cols-3">
         <MetricBox
           label="Total Call Volume"
-          value={compact(analysis.callVolume)}
+          value={compact(
+            analysis.callVolume
+          )}
           valueClass="text-emerald-300"
           subtext={`${analysis.callCount} quoted call contracts`}
         />
 
         <MetricBox
           label="Total Put Volume"
-          value={compact(analysis.putVolume)}
+          value={compact(
+            analysis.putVolume
+          )}
           valueClass="text-red-300"
           subtext={`${analysis.putCount} quoted put contracts`}
         />
 
         <MetricBox
           label="P/C Volume Ratio"
-          value={ratioText(analysis.pcrVolume)}
-          valueClass={volumeFlow.className}
-          subtext={volumeFlow.label}
+          value={ratioText(
+            analysis.pcrVolume
+          )}
+          valueClass={
+            volumeFlow.className
+          }
+          subtext={
+            volumeFlow.label
+          }
         />
 
         <MetricBox
           label="Total Call OI"
-          value={compact(analysis.callOI)}
+          value={compact(
+            analysis.callOI
+          )}
           valueClass="text-emerald-300"
         />
 
         <MetricBox
           label="Total Put OI"
-          value={compact(analysis.putOI)}
+          value={compact(
+            analysis.putOI
+          )}
           valueClass="text-red-300"
         />
 
         <MetricBox
           label="P/C OI Ratio"
-          value={ratioText(analysis.pcrOI)}
-          valueClass={oiFlow.className}
-          subtext={oiFlow.label}
+          value={ratioText(
+            analysis.pcrOI
+          )}
+          valueClass={
+            oiFlow.className
+          }
+          subtext={
+            oiFlow.label
+          }
         />
       </div>
 
@@ -1705,7 +2045,9 @@ function FullChainFlowPanel({
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <MetricBox
           label="Highest-Volume Call"
-          value={money(analysis.highestCallVolume?.strike)}
+          value={money(
+            analysis.highestCallVolume?.strike
+          )}
           valueClass="text-emerald-300"
           subtext={
             analysis.highestCallVolume
@@ -1720,7 +2062,9 @@ function FullChainFlowPanel({
 
         <MetricBox
           label="Highest-Volume Put"
-          value={money(analysis.highestPutVolume?.strike)}
+          value={money(
+            analysis.highestPutVolume?.strike
+          )}
           valueClass="text-red-300"
           subtext={
             analysis.highestPutVolume
@@ -1741,29 +2085,39 @@ function FullChainFlowPanel({
       <div className="mt-2 grid gap-2 lg:grid-cols-4">
         <MetricBox
           label="Call OI Wall"
-          value={money(analysis.callOIWall?.strike)}
+          value={money(
+            analysis.callOIWall?.strike
+          )}
           valueClass="text-emerald-300"
           subtext={
             analysis.callOIWall
-              ? `OI ${compact(analysis.callOIWall.openInterest)}`
+              ? `OI ${compact(
+                  analysis.callOIWall.openInterest
+                )}`
               : "—"
           }
         />
 
         <MetricBox
           label="Put OI Wall"
-          value={money(analysis.putOIWall?.strike)}
+          value={money(
+            analysis.putOIWall?.strike
+          )}
           valueClass="text-red-300"
           subtext={
             analysis.putOIWall
-              ? `OI ${compact(analysis.putOIWall.openInterest)}`
+              ? `OI ${compact(
+                  analysis.putOIWall.openInterest
+                )}`
               : "—"
           }
         />
 
         <MetricBox
           label="Lower OI Concentration"
-          value={money(analysis.lowerOIConcentration?.strike)}
+          value={money(
+            analysis.lowerOIConcentration?.strike
+          )}
           subtext={
             analysis.lowerOIConcentration
               ? `Combined OI ${compact(
@@ -1775,7 +2129,9 @@ function FullChainFlowPanel({
 
         <MetricBox
           label="Upper OI Concentration"
-          value={money(analysis.upperOIConcentration?.strike)}
+          value={money(
+            analysis.upperOIConcentration?.strike
+          )}
           subtext={
             analysis.upperOIConcentration
               ? `Combined OI ${compact(
@@ -1793,29 +2149,33 @@ function FullChainFlowPanel({
 
         <div className="mt-1 flex gap-3">
           <div className="text-lg font-mono font-bold text-violet-300">
-            {money(analysis.gammaConcentration?.strike)}
+            {money(
+              analysis.gammaConcentration?.strike
+            )}
           </div>
 
           <div className="text-[10px] text-zinc-500">
             |Γ| × OI proxy{" "}
             {analysis.gammaConcentration
-              ? compact(analysis.gammaConcentration.gammaOIProxy)
+              ? compact(
+                  analysis.gammaConcentration.gammaOIProxy
+                )
               : "—"}
           </div>
         </div>
       </div>
 
       <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2 text-[9px] text-zinc-500">
-        Volume and open interest show where contracts are concentrated, but not
-        whether those contracts were bought or sold. Gamma is an |gamma| ×
-        open-interest concentration proxy, not dealer positioning.
+        Volume and open interest show concentration, not whether contracts
+        were bought or sold. Gamma is an |gamma| × open-interest proxy, not
+        dealer positioning.
       </div>
     </div>
   );
 }
 
 /* =========================================================
-   HISTORICAL PRICE + SMART LABELS + RSI + MACD
+   HISTORICAL TECHNICAL CHART
 ========================================================= */
 
 function HistoricalTechnicalChart({
@@ -1823,17 +2183,45 @@ function HistoricalTechnicalChart({
   spot,
   fullChainAnalysis,
 }) {
-  const [rangeDays, setRangeDays] = useState(90);
+  const [
+    rangeDays,
+    setRangeDays,
+  ] = useState(90);
 
-  const [showStructure, setShowStructure] = useState(true);
-  const [showOptions, setShowOptions] = useState(true);
+  const [
+    showStructure,
+    setShowStructure,
+  ] = useState(true);
 
-  const [bars, setBars] = useState([]);
-  const [rsiSeries, setRsiSeries] = useState([]);
-  const [macdSeries, setMacdSeries] = useState([]);
+  const [
+    showOptions,
+    setShowOptions,
+  ] = useState(true);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [
+    bars,
+    setBars,
+  ] = useState([]);
+
+  const [
+    rsiSeries,
+    setRsiSeries,
+  ] = useState([]);
+
+  const [
+    macdSeries,
+    setMacdSeries,
+  ] = useState([]);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    error,
+    setError,
+  ] = useState("");
 
   useEffect(() => {
     if (!ticker) return;
@@ -1848,62 +2236,102 @@ function HistoricalTechnicalChart({
         const end = new Date();
         const start = new Date();
 
-        start.setDate(start.getDate() - (rangeDays + 90));
+        start.setDate(
+          start.getDate() -
+            (rangeDays + 90)
+        );
 
         const common = {
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
+          start_time:
+            start.toISOString(),
 
-          interval: "day",
-          bounds: "regular",
-          adjustment_type: "split",
+          end_time:
+            end.toISOString(),
+
+          interval:
+            "day",
+
+          bounds:
+            "regular",
+
+          adjustment_type:
+            "split",
         };
 
         const [
           historicalPayload,
           rsiPayload,
           macdPayload,
-        ] = await Promise.all([
-          callRobinhood("get_equity_historicals", {
-            symbols: [ticker],
-            ...common,
-          }),
+        ] =
+          await Promise.all([
+            callRobinhood(
+              "get_equity_historicals",
+              {
+                symbols: [
+                  ticker,
+                ],
 
-          callRobinhood("get_equity_technical_indicators", {
-            symbol: ticker,
-            type: "rsi",
-            ...common,
-            output: "series",
-            period: 14,
-          }),
+                ...common,
+              }
+            ),
 
-          callRobinhood("get_equity_technical_indicators", {
-            symbol: ticker,
-            type: "macd",
-            ...common,
-            output: "series",
+            callRobinhood(
+              "get_equity_technical_indicators",
+              {
+                symbol:
+                  ticker,
 
-            fast_period: 12,
-            slow_period: 26,
-            signal_period: 9,
-          }),
-        ]);
+                type:
+                  "rsi",
+
+                ...common,
+
+                output:
+                  "series",
+
+                period: 14,
+              }
+            ),
+
+            callRobinhood(
+              "get_equity_technical_indicators",
+              {
+                symbol:
+                  ticker,
+
+                type:
+                  "macd",
+
+                ...common,
+
+                output:
+                  "series",
+
+                fast_period: 12,
+                slow_period: 26,
+                signal_period: 9,
+              }
+            ),
+          ]);
 
         if (cancelled) return;
 
-        const loadedBars = extractHistoricalBars(
-          historicalPayload
-        );
+        const loadedBars =
+          extractHistoricalBars(
+            historicalPayload
+          );
 
-        const loadedRsi = extractIndicatorSeries(
-          rsiPayload,
-          "rsi"
-        );
+        const loadedRsi =
+          extractIndicatorSeries(
+            rsiPayload,
+            "rsi"
+          );
 
-        const loadedMacd = extractIndicatorSeries(
-          macdPayload,
-          "macd"
-        );
+        const loadedMacd =
+          extractIndicatorSeries(
+            macdPayload,
+            "macd"
+          );
 
         setBars(
           filterByCalendarDays(
@@ -1914,30 +2342,40 @@ function HistoricalTechnicalChart({
 
         setRsiSeries(
           filterByCalendarDays(
-            loadedRsi.map((item) => ({
-              ...item,
-              time: item.begins_at,
-            })),
+            loadedRsi.map(
+              (item) => ({
+                ...item,
+                time:
+                  item.begins_at,
+              })
+            ),
             rangeDays
           )
         );
 
         setMacdSeries(
           filterByCalendarDays(
-            loadedMacd.map((item) => ({
-              ...item,
-              time: item.begins_at,
-            })),
+            loadedMacd.map(
+              (item) => ({
+                ...item,
+                time:
+                  item.begins_at,
+              })
+            ),
             rangeDays
           )
         );
       } catch (err) {
         if (!cancelled) {
-          setError(err.message);
+          setError(
+            err.message
+          );
         }
       } finally {
         if (!cancelled) {
-          setLoading(false);
+          setLoading(
+            false
+          );
         }
       }
     }
@@ -1947,7 +2385,10 @@ function HistoricalTechnicalChart({
     return () => {
       cancelled = true;
     };
-  }, [ticker, rangeDays]);
+  }, [
+    ticker,
+    rangeDays,
+  ]);
 
   if (loading) {
     return (
@@ -1979,30 +2420,59 @@ function HistoricalTechnicalChart({
 
   if (!bars.length) return null;
 
-  /* PRICE STRUCTURE */
+  const high20 =
+    highestHigh(
+      bars,
+      20
+    );
 
-  const high20 = highestHigh(bars, 20);
-  const low20 = lowestLow(bars, 20);
+  const low20 =
+    lowestLow(
+      bars,
+      20
+    );
 
-  const high50 = highestHigh(bars, 50);
-  const low50 = lowestLow(bars, 50);
+  const high50 =
+    highestHigh(
+      bars,
+      50
+    );
 
-  const recentSwingHigh = findRecentSwingHigh(bars, 2);
-  const recentSwingLow = findRecentSwingLow(bars, 2);
+  const low50 =
+    lowestLow(
+      bars,
+      50
+    );
+
+  const recentSwingHigh =
+    findRecentSwingHigh(
+      bars,
+      2
+    );
+
+  const recentSwingLow =
+    findRecentSwingLow(
+      bars,
+      2
+    );
 
   const callWall =
-    fullChainAnalysis?.callOIWall?.strike ??
+    fullChainAnalysis
+      ?.callOIWall
+      ?.strike ??
     null;
 
   const putWall =
-    fullChainAnalysis?.putOIWall?.strike ??
+    fullChainAnalysis
+      ?.putOIWall
+      ?.strike ??
     null;
 
   const gammaLevel =
-    fullChainAnalysis?.gammaConcentration?.strike ??
+    fullChainAnalysis
+      ?.gammaConcentration
+      ?.strike ??
     null;
-
-  /* CHART DIMENSIONS */
 
   const width = 1100;
 
@@ -2015,11 +2485,6 @@ function HistoricalTechnicalChart({
 
   const top = 18;
   const bottom = 30;
-
-  /*
-    NEW:
-    price chart reserves a right-side gutter for labels.
-  */
 
   const priceLabelGutter = 190;
 
@@ -2058,8 +2523,6 @@ function HistoricalTechnicalChart({
     );
   }
 
-  /* PRICE RANGE */
-
   const optionLevels = [
     callWall,
     putWall,
@@ -2074,7 +2537,9 @@ function HistoricalTechnicalChart({
     }
 
     return (
-      Math.abs(value - spot) /
+      Math.abs(
+        value - spot
+      ) /
         spot <=
       0.15
     );
@@ -2085,7 +2550,6 @@ function HistoricalTechnicalChart({
     low20,
     high50,
     low50,
-
     recentSwingHigh?.price,
     recentSwingLow?.price,
   ].filter(
@@ -2116,22 +2580,24 @@ function HistoricalTechnicalChart({
       : []),
   ];
 
-  const rawPriceLow = Math.min(
-    ...rangeLevels
-  );
+  const rawPriceLow =
+    Math.min(
+      ...rangeLevels
+    );
 
-  const rawPriceHigh = Math.max(
-    ...rangeLevels
-  );
+  const rawPriceHigh =
+    Math.max(
+      ...rangeLevels
+    );
 
-  const pricePadding = Math.max(
-    (
-      rawPriceHigh -
-      rawPriceLow
-    ) *
-      0.07,
-    1
-  );
+  const pricePadding =
+    Math.max(
+      (
+        rawPriceHigh -
+        rawPriceLow
+      ) * 0.07,
+      1
+    );
 
   const priceMin =
     rawPriceLow -
@@ -2164,17 +2630,21 @@ function HistoricalTechnicalChart({
     );
   }
 
-  const pricePoints = bars
-    .map(
-      (bar, index) =>
-        `${priceX(
-          index,
-          bars.length
-        )},${priceY(
-          bar.close
-        )}`
-    )
-    .join(" ");
+  const pricePoints =
+    bars
+      .map(
+        (
+          bar,
+          index
+        ) =>
+          `${priceX(
+            index,
+            bars.length
+          )},${priceY(
+            bar.close
+          )}`
+      )
+      .join(" ");
 
   const firstClose =
     bars[0].close;
@@ -2197,27 +2667,23 @@ function HistoricalTechnicalChart({
         100
       : null;
 
-  const periodHigh = Math.max(
-    ...bars.map(
-      (bar) =>
-        bar.high ??
-        bar.close
-    )
-  );
+  const periodHigh =
+    Math.max(
+      ...bars.map(
+        (bar) =>
+          bar.high ??
+          bar.close
+      )
+    );
 
-  const periodLow = Math.min(
-    ...bars.map(
-      (bar) =>
-        bar.low ??
-        bar.close
-    )
-  );
-
-  /*
-    =======================================================
-    SMART OVERLAY LABELS
-    =======================================================
-  */
+  const periodLow =
+    Math.min(
+      ...bars.map(
+        (bar) =>
+          bar.low ??
+          bar.close
+      )
+    );
 
   const overlayDefinitions = [];
 
@@ -2229,7 +2695,8 @@ function HistoricalTechnicalChart({
       id: "spot",
       level: spot,
       label: "Spot",
-      className: "text-yellow-400",
+      className:
+        "text-yellow-400",
       dash: "7 5",
     });
   }
@@ -2240,7 +2707,8 @@ function HistoricalTechnicalChart({
         id: "20-high",
         level: high20,
         label: "20D High",
-        className: "text-cyan-400",
+        className:
+          "text-cyan-400",
         dash: "6 5",
       });
     }
@@ -2250,38 +2718,57 @@ function HistoricalTechnicalChart({
         id: "20-low",
         level: low20,
         label: "20D Low",
-        className: "text-cyan-400",
+        className:
+          "text-cyan-400",
         dash: "6 5",
       });
     }
 
     if (
       recentSwingHigh?.price !==
-      null &&
+        null &&
       recentSwingHigh?.price !==
-      undefined
+        undefined
     ) {
       overlayDefinitions.push({
-        id: "swing-high",
-        level: recentSwingHigh.price,
-        label: "Swing High",
-        className: "text-amber-400",
-        dash: "3 6",
+        id:
+          "swing-high",
+
+        level:
+          recentSwingHigh.price,
+
+        label:
+          "Swing High",
+
+        className:
+          "text-amber-400",
+
+        dash:
+          "3 6",
       });
     }
 
     if (
       recentSwingLow?.price !==
-      null &&
+        null &&
       recentSwingLow?.price !==
-      undefined
+        undefined
     ) {
       overlayDefinitions.push({
-        id: "swing-low",
-        level: recentSwingLow.price,
-        label: "Swing Low",
-        className: "text-amber-400",
-        dash: "3 6",
+        id:
+          "swing-low",
+
+        level:
+          recentSwingLow.price,
+
+        label:
+          "Swing Low",
+
+        className:
+          "text-amber-400",
+
+        dash:
+          "3 6",
       });
     }
   }
@@ -2292,11 +2779,20 @@ function HistoricalTechnicalChart({
       callWall !== undefined
     ) {
       overlayDefinitions.push({
-        id: "call-wall",
-        level: callWall,
-        label: "Call OI Wall",
-        className: "text-emerald-400",
-        dash: "10 5",
+        id:
+          "call-wall",
+
+        level:
+          callWall,
+
+        label:
+          "Call OI Wall",
+
+        className:
+          "text-emerald-400",
+
+        dash:
+          "10 5",
       });
     }
 
@@ -2305,11 +2801,20 @@ function HistoricalTechnicalChart({
       putWall !== undefined
     ) {
       overlayDefinitions.push({
-        id: "put-wall",
-        level: putWall,
-        label: "Put OI Wall",
-        className: "text-red-400",
-        dash: "10 5",
+        id:
+          "put-wall",
+
+        level:
+          putWall,
+
+        label:
+          "Put OI Wall",
+
+        className:
+          "text-red-400",
+
+        dash:
+          "10 5",
       });
     }
 
@@ -2318,11 +2823,20 @@ function HistoricalTechnicalChart({
       gammaLevel !== undefined
     ) {
       overlayDefinitions.push({
-        id: "gamma",
-        level: gammaLevel,
-        label: "Gamma",
-        className: "text-violet-400",
-        dash: "2 5",
+        id:
+          "gamma",
+
+        level:
+          gammaLevel,
+
+        label:
+          "Gamma",
+
+        className:
+          "text-violet-400",
+
+        dash:
+          "2 5",
       });
     }
   }
@@ -2346,25 +2860,19 @@ function HistoricalTechnicalChart({
               ),
           })
         ),
-
       top + 8,
-
       priceHeight -
         bottom -
         8,
-
       18
     );
-
-  /* RSI */
 
   const usableRsi =
     rsiSeries.filter(
       (item) =>
         toNumber(
           item.value
-        ) !==
-        null
+        ) !== null
     );
 
   const rsiPlotHeight =
@@ -2412,8 +2920,6 @@ function HistoricalTechnicalChart({
         )
       : null;
 
-  /* MACD */
-
   const usableMacd =
     macdSeries.filter(
       (item) =>
@@ -2444,21 +2950,24 @@ function HistoricalTechnicalChart({
       ]
     );
 
-  let macdMin = Math.min(
-    ...macdValues,
-    0
-  );
+  let macdMin =
+    Math.min(
+      ...macdValues,
+      0
+    );
 
-  let macdMax = Math.max(
-    ...macdValues,
-    0
-  );
+  let macdMax =
+    Math.max(
+      ...macdValues,
+      0
+    );
 
-  const macdSpan = Math.max(
-    macdMax -
-      macdMin,
-    1
-  );
+  const macdSpan =
+    Math.max(
+      macdMax -
+        macdMin,
+      1
+    );
 
   macdMin -=
     macdSpan *
@@ -2539,8 +3048,7 @@ function HistoricalTechnicalChart({
     macdY(0);
 
   const histogramBarWidth =
-    usableMacd.length >
-    0
+    usableMacd.length > 0
       ? Math.max(
           2,
           (
@@ -2551,7 +3059,8 @@ function HistoricalTechnicalChart({
         )
       : 2;
 
-  const firstBar = bars[0];
+  const firstBar =
+    bars[0];
 
   const middleBar =
     bars[
@@ -2575,7 +3084,7 @@ function HistoricalTechnicalChart({
             Historical technicals
           </div>
 
-          <div className="mt-1 text-sm font-bold text-white">
+          <div className="mt-1 text-sm font-bold">
             {ticker} price + momentum + structure
           </div>
 
@@ -2587,40 +3096,51 @@ function HistoricalTechnicalChart({
         <div className="flex flex-wrap gap-2">
           {[
             {
-              label: "1M",
-              days: 30,
+              label:
+                "1M",
+
+              days:
+                30,
             },
 
             {
-              label: "3M",
-              days: 90,
+              label:
+                "3M",
+
+              days:
+                90,
             },
 
             {
-              label: "6M",
-              days: 180,
+              label:
+                "6M",
+
+              days:
+                180,
             },
-          ].map((item) => (
-            <button
-              type="button"
-              key={item.days}
-              onClick={() =>
-                setRangeDays(
+          ].map(
+            (item) => (
+              <button
+                type="button"
+                key={
                   item.days
-                )
-              }
-              className={`rounded border px-2.5 py-1 text-[10px] font-mono ${
-                rangeDays ===
-                item.days
-                  ? "border-blue-400/60 bg-blue-400/10 text-blue-300"
-                  : "border-zinc-700 text-zinc-500 hover:border-zinc-500"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-
-          <div className="mx-1 w-px bg-zinc-800" />
+                }
+                onClick={() =>
+                  setRangeDays(
+                    item.days
+                  )
+                }
+                className={`rounded border px-2.5 py-1 text-[10px] ${
+                  rangeDays ===
+                  item.days
+                    ? "border-blue-400 bg-blue-400/10 text-blue-300"
+                    : "border-zinc-700 text-zinc-500"
+                }`}
+              >
+                {item.label}
+              </button>
+            )
+          )}
 
           <button
             type="button"
@@ -2632,7 +3152,7 @@ function HistoricalTechnicalChart({
             }
             className={`rounded border px-2.5 py-1 text-[10px] ${
               showStructure
-                ? "border-cyan-400/50 bg-cyan-400/10 text-cyan-300"
+                ? "border-cyan-400 text-cyan-300"
                 : "border-zinc-700 text-zinc-500"
             }`}
           >
@@ -2649,7 +3169,7 @@ function HistoricalTechnicalChart({
             }
             className={`rounded border px-2.5 py-1 text-[10px] ${
               showOptions
-                ? "border-violet-400/50 bg-violet-400/10 text-violet-300"
+                ? "border-violet-400 text-violet-300"
                 : "border-zinc-700 text-zinc-500"
             }`}
           >
@@ -2658,7 +3178,7 @@ function HistoricalTechnicalChart({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-4 grid gap-2 lg:grid-cols-5">
         <MetricBox
           label="Latest Daily Close"
           value={money(
@@ -2685,11 +3205,9 @@ function HistoricalTechnicalChart({
               : "—"
           }
           valueClass={
-            periodChange >
-            0
+            periodChange > 0
               ? "text-emerald-300"
-              : periodChange <
-                  0
+              : periodChange < 0
                 ? "text-red-300"
                 : "text-zinc-200"
           }
@@ -2717,14 +3235,12 @@ function HistoricalTechnicalChart({
         />
       </div>
 
-      {/* PRICE STRUCTURE */}
-
       <div className="mt-4">
         <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
           Price structure
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 lg:grid-cols-3">
           <MetricBox
             label="20-Day High"
             value={money(
@@ -2774,8 +3290,7 @@ function HistoricalTechnicalChart({
           <MetricBox
             label="Recent Swing High"
             value={money(
-              recentSwingHigh
-                ?.price
+              recentSwingHigh?.price
             )}
             valueClass="text-amber-300"
             subtext={
@@ -2786,15 +3301,14 @@ function HistoricalTechnicalChart({
                     recentSwingHigh.price,
                     spot
                   )}`
-                : "No recent pivot found"
+                : "—"
             }
           />
 
           <MetricBox
             label="Recent Swing Low"
             value={money(
-              recentSwingLow
-                ?.price
+              recentSwingLow?.price
             )}
             valueClass="text-amber-300"
             subtext={
@@ -2805,13 +3319,11 @@ function HistoricalTechnicalChart({
                     recentSwingLow.price,
                     spot
                   )}`
-                : "No recent pivot found"
+                : "—"
             }
           />
         </div>
       </div>
-
-      {/* OPTIONS LEVELS */}
 
       {fullChainAnalysis && (
         <div className="mt-4">
@@ -2859,143 +3371,170 @@ function HistoricalTechnicalChart({
         </div>
       )}
 
-      {/* PRICE CHART */}
-
       <div className="mt-4 rounded-lg border border-zinc-800 bg-black/25 p-3">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[9px] uppercase tracking-widest text-zinc-500">
-            Daily closing price
-          </div>
-
-          <div className="text-[9px] text-zinc-600">
-            Smart label spacing enabled
-          </div>
+        <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+          Daily closing price
         </div>
 
         <svg
           viewBox={`0 0 ${width} ${priceHeight}`}
           className="w-full"
         >
-          {/* Main chart background divider */}
-
           <line
-            x1={pricePlotRight + 8}
-            x2={pricePlotRight + 8}
-            y1={top}
+            x1={
+              pricePlotRight +
+              8
+            }
+            x2={
+              pricePlotRight +
+              8
+            }
+            y1={
+              top
+            }
             y2={
               priceHeight -
               bottom
             }
             stroke="currentColor"
             className="text-zinc-800"
-            strokeWidth="1"
             strokeDasharray="3 5"
           />
 
-          {/* Horizontal grid */}
+          {[0.25, 0.5, 0.75].map(
+            (fraction) => {
+              const y =
+                top +
+                pricePlotHeight *
+                  fraction;
 
-          {[0.25, 0.5, 0.75].map((fraction) => {
-            const y =
-              top +
-              pricePlotHeight *
-                fraction;
+              return (
+                <line
+                  key={
+                    fraction
+                  }
+                  x1={
+                    left
+                  }
+                  x2={
+                    pricePlotRight
+                  }
+                  y1={
+                    y
+                  }
+                  y2={
+                    y
+                  }
+                  stroke="currentColor"
+                  className="text-zinc-800"
+                />
+              );
+            }
+          )}
 
-            return (
-              <line
-                key={fraction}
-                x1={left}
-                x2={pricePlotRight}
-                y1={y}
-                y2={y}
-                stroke="currentColor"
-                className="text-zinc-800"
-                strokeWidth="1"
-              />
-            );
-          })}
-
-          {/* Smart level lines + labels */}
-
-          {overlayLayout.map((item) => (
-            <g
-              key={item.id}
-              className={item.className}
-            >
-              {/* True price line */}
-
-              <line
-                x1={left}
-                x2={pricePlotRight}
-                y1={item.actualY}
-                y2={item.actualY}
-                stroke="currentColor"
-                strokeWidth={
-                  item.id ===
-                  "spot"
-                    ? "1.5"
-                    : "1.2"
+          {overlayLayout.map(
+            (item) => (
+              <g
+                key={
+                  item.id
                 }
-                strokeDasharray={item.dash}
-              />
-
-              {/* Connector into label gutter */}
-
-              <line
-                x1={pricePlotRight}
-                x2={pricePlotRight + 13}
-                y1={item.actualY}
-                y2={item.labelY}
-                stroke="currentColor"
-                strokeWidth="1"
-                opacity="0.8"
-              />
-
-              {/* Small endpoint */}
-
-              <circle
-                cx={pricePlotRight + 13}
-                cy={item.labelY}
-                r="2"
-                fill="currentColor"
-              />
-
-              {/* Smart-spaced label */}
-
-              <text
-                x={pricePlotRight + 20}
-                y={item.labelY + 4}
-                fill="currentColor"
-                className="text-[10px]"
+                className={
+                  item.className
+                }
               >
-                {item.label}{" "}
-                <tspan fontWeight="700">
-                  {money(item.level)}
-                </tspan>
-              </text>
-            </g>
-          ))}
+                <line
+                  x1={
+                    left
+                  }
+                  x2={
+                    pricePlotRight
+                  }
+                  y1={
+                    item.actualY
+                  }
+                  y2={
+                    item.actualY
+                  }
+                  stroke="currentColor"
+                  strokeDasharray={
+                    item.dash
+                  }
+                />
 
-          {/* Price history */}
+                <line
+                  x1={
+                    pricePlotRight
+                  }
+                  x2={
+                    pricePlotRight +
+                    13
+                  }
+                  y1={
+                    item.actualY
+                  }
+                  y2={
+                    item.labelY
+                  }
+                  stroke="currentColor"
+                />
+
+                <circle
+                  cx={
+                    pricePlotRight +
+                    13
+                  }
+                  cy={
+                    item.labelY
+                  }
+                  r="2"
+                  fill="currentColor"
+                />
+
+                <text
+                  x={
+                    pricePlotRight +
+                    20
+                  }
+                  y={
+                    item.labelY +
+                    4
+                  }
+                  fill="currentColor"
+                  className="text-[10px]"
+                >
+                  {item.label}{" "}
+                  <tspan fontWeight="700">
+                    {money(
+                      item.level
+                    )}
+                  </tspan>
+                </text>
+              </g>
+            )
+          )}
 
           <polyline
-            points={pricePoints}
+            points={
+              pricePoints
+            }
             fill="none"
             stroke="currentColor"
             className="text-blue-400"
             strokeWidth="3"
-            strokeLinejoin="round"
-            strokeLinecap="round"
           />
-
-          {/* Y-axis labels */}
 
           <text
             x="4"
-            y={top + 5}
+            y={
+              top +
+              5
+            }
             fill="currentColor"
             className="text-[10px] text-zinc-500"
           >
-            {money(priceMax)}
+            {money(
+              priceMax
+            )}
           </text>
 
           <text
@@ -3007,13 +3546,15 @@ function HistoricalTechnicalChart({
             fill="currentColor"
             className="text-[10px] text-zinc-500"
           >
-            {money(priceMin)}
+            {money(
+              priceMin
+            )}
           </text>
 
-          {/* Dates */}
-
           <text
-            x={left}
+            x={
+              left
+            }
             y={
               priceHeight -
               7
@@ -3046,7 +3587,9 @@ function HistoricalTechnicalChart({
           </text>
 
           <text
-            x={pricePlotRight}
+            x={
+              pricePlotRight
+            }
             y={
               priceHeight -
               7
@@ -3062,19 +3605,16 @@ function HistoricalTechnicalChart({
         </svg>
       </div>
 
-      {/* RSI */}
-
       <div className="mt-3 rounded-lg border border-zinc-800 bg-black/25 p-3">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex justify-between">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             RSI (14)
           </div>
 
-          <div className="text-[9px] font-mono text-zinc-500">
+          <div className="text-[9px] font-mono">
             Latest{" "}
             <span className="text-violet-300">
-              {latestRsi !==
-              null
+              {latestRsi !== null
                 ? latestRsi.toFixed(
                     1
                   )
@@ -3087,57 +3627,72 @@ function HistoricalTechnicalChart({
           viewBox={`0 0 ${width} ${rsiHeight}`}
           className="w-full"
         >
-          {[30, 50, 70].map((level) => (
-            <g key={level}>
-              <line
-                x1={left}
-                x2={
-                  width -
-                  right
+          {[30, 50, 70].map(
+            (level) => (
+              <g
+                key={
+                  level
                 }
-                y1={rsiY(level)}
-                y2={rsiY(level)}
-                stroke="currentColor"
-                className="text-zinc-800"
-                strokeWidth="1"
-                strokeDasharray="5 5"
-              />
-
-              <text
-                x="20"
-                y={
-                  rsiY(level) +
-                  4
-                }
-                fill="currentColor"
-                className="text-[10px] text-zinc-600"
               >
-                {level}
-              </text>
-            </g>
-          ))}
+                <line
+                  x1={
+                    left
+                  }
+                  x2={
+                    width -
+                    right
+                  }
+                  y1={
+                    rsiY(
+                      level
+                    )
+                  }
+                  y2={
+                    rsiY(
+                      level
+                    )
+                  }
+                  stroke="currentColor"
+                  className="text-zinc-800"
+                  strokeDasharray="5 5"
+                />
+
+                <text
+                  x="20"
+                  y={
+                    rsiY(
+                      level
+                    ) +
+                    4
+                  }
+                  fill="currentColor"
+                  className="text-[10px] text-zinc-600"
+                >
+                  {level}
+                </text>
+              </g>
+            )
+          )}
 
           <polyline
-            points={rsiPoints}
+            points={
+              rsiPoints
+            }
             fill="none"
             stroke="currentColor"
             className="text-violet-400"
             strokeWidth="2.5"
-            strokeLinejoin="round"
-            strokeLinecap="round"
           />
         </svg>
       </div>
 
-      {/* MACD */}
-
       <div className="mt-3 rounded-lg border border-zinc-800 bg-black/25 p-3">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-2 flex flex-wrap justify-between gap-2">
           <div className="text-[9px] uppercase tracking-widest text-zinc-500">
             MACD (12, 26, 9)
           </div>
 
-          <div className="flex gap-3 text-[9px] font-mono text-zinc-500">
+          <div className="flex gap-3 text-[9px] font-mono">
             <span>
               MACD{" "}
               <b className="text-blue-300">
@@ -3190,65 +3745,89 @@ function HistoricalTechnicalChart({
           className="w-full"
         >
           <line
-            x1={left}
+            x1={
+              left
+            }
             x2={
               width -
               right
             }
-            y1={zeroY}
-            y2={zeroY}
+            y1={
+              zeroY
+            }
+            y2={
+              zeroY
+            }
             stroke="currentColor"
             className="text-zinc-600"
-            strokeWidth="1"
           />
 
-          {usableMacd.map((item, index) => {
-            const value =
-              toNumber(
-                item.histogram
-              ) ?? 0;
+          {usableMacd.map(
+            (
+              item,
+              index
+            ) => {
+              const value =
+                toNumber(
+                  item.histogram
+                ) ?? 0;
 
-            const x =
-              indicatorX(
-                index,
-                usableMacd.length
-              ) -
-              histogramBarWidth /
-                2;
+              const x =
+                indicatorX(
+                  index,
+                  usableMacd.length
+                ) -
+                histogramBarWidth /
+                  2;
 
-            const barY =
-              value >= 0
-                ? macdY(value)
-                : zeroY;
+              const barY =
+                value >= 0
+                  ? macdY(
+                      value
+                    )
+                  : zeroY;
 
-            const barHeight =
-              Math.max(
-                1,
-                Math.abs(
-                  macdY(value) -
-                    zeroY
-                )
+              const barHeight =
+                Math.max(
+                  1,
+                  Math.abs(
+                    macdY(
+                      value
+                    ) -
+                      zeroY
+                  )
+                );
+
+              return (
+                <rect
+                  key={`${item.begins_at}-${index}`}
+                  x={
+                    x
+                  }
+                  y={
+                    barY
+                  }
+                  width={
+                    histogramBarWidth
+                  }
+                  height={
+                    barHeight
+                  }
+                  fill="currentColor"
+                  className={
+                    value >= 0
+                      ? "text-emerald-500/40"
+                      : "text-red-500/40"
+                  }
+                />
               );
-
-            return (
-              <rect
-                key={`${item.begins_at}-${index}`}
-                x={x}
-                y={barY}
-                width={histogramBarWidth}
-                height={barHeight}
-                fill="currentColor"
-                className={
-                  value >= 0
-                    ? "text-emerald-500/40"
-                    : "text-red-500/40"
-                }
-              />
-            );
-          })}
+            }
+          )}
 
           <polyline
-            points={macdPoints}
+            points={
+              macdPoints
+            }
             fill="none"
             stroke="currentColor"
             className="text-blue-400"
@@ -3256,7 +3835,9 @@ function HistoricalTechnicalChart({
           />
 
           <polyline
-            points={signalPoints}
+            points={
+              signalPoints
+            }
             fill="none"
             stroke="currentColor"
             className="text-amber-400"
@@ -3265,11 +3846,10 @@ function HistoricalTechnicalChart({
         </svg>
       </div>
 
-      <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 px-3 py-2 text-[9px] leading-relaxed text-zinc-500">
-        Swing levels are derived from recent daily price pivots. Options levels
-        show open-interest and gamma concentration, not guaranteed support or
-        resistance. Labels are visually spaced while their horizontal lines
-        remain fixed at the actual price levels.
+      <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 px-3 py-2 text-[9px] text-zinc-500">
+        Swing levels are derived from recent daily price pivots. Options
+        levels show concentration rather than guaranteed support or
+        resistance.
       </div>
     </div>
   );
@@ -3284,17 +3864,27 @@ function PayoffChart({
   economics,
   spot,
 }) {
-  const series = useMemo(
-    () =>
-      buildPayoffSeries(
+  const series =
+    useMemo(
+      () =>
+        buildPayoffSeries(
+          strategy,
+          economics,
+          spot
+        ),
+      [
         strategy,
         economics,
-        spot
-      ),
-    [strategy, economics, spot]
-  );
+        spot,
+      ]
+    );
 
-  if (!economics || !series.length) return null;
+  if (
+    !economics ||
+    !series.length
+  ) {
+    return null;
+  }
 
   const width = 900;
   const height = 260;
@@ -3314,41 +3904,95 @@ function PayoffChart({
     paddingTop -
     paddingBottom;
 
-  const prices = series.map((point) => point.price);
-  const pls = series.map((point) => point.pl);
+  const prices =
+    series.map(
+      (point) =>
+        point.price
+    );
 
-  const xMin = Math.min(...prices);
-  const xMax = Math.max(...prices);
+  const pls =
+    series.map(
+      (point) =>
+        point.pl
+    );
 
-  let yMin = Math.min(...pls, 0);
-  let yMax = Math.max(...pls, 0);
+  const xMin =
+    Math.min(
+      ...prices
+    );
 
-  const ySpan = Math.max(
-    yMax - yMin,
-    100
-  );
+  const xMax =
+    Math.max(
+      ...prices
+    );
 
-  yMin -= ySpan * 0.12;
-  yMax += ySpan * 0.12;
+  let yMin =
+    Math.min(
+      ...pls,
+      0
+    );
 
-  const x = (price) =>
-    paddingLeft +
-    ((price - xMin) /
-      (xMax - xMin)) *
-      chartWidth;
+  let yMax =
+    Math.max(
+      ...pls,
+      0
+    );
 
-  const y = (pl) =>
-    paddingTop +
-    (1 -
-      (pl - yMin) /
-        (yMax - yMin)) *
-      chartHeight;
+  const ySpan =
+    Math.max(
+      yMax -
+        yMin,
+      100
+    );
 
-  const zeroY = y(0);
+  yMin -=
+    ySpan *
+    0.12;
+
+  yMax +=
+    ySpan *
+    0.12;
+
+  const x =
+    (price) =>
+      paddingLeft +
+      (
+        (
+          price -
+          xMin
+        ) /
+        (
+          xMax -
+          xMin
+        )
+      ) *
+        chartWidth;
+
+  const y =
+    (pl) =>
+      paddingTop +
+      (
+        1 -
+        (
+          pl -
+          yMin
+        ) /
+          (
+            yMax -
+            yMin
+          )
+      ) *
+        chartHeight;
+
+  const zeroY =
+    y(0);
 
   const breakevenX =
-    economics.breakeven !== null
-      ? x(economics.breakeven)
+    economics.breakeven !==
+    null
+      ? x(
+          economics.breakeven
+        )
       : null;
 
   const spotX =
@@ -3363,12 +4007,17 @@ function PayoffChart({
         )
       : null;
 
-  const points = series
-    .map(
-      (point) =>
-        `${x(point.price)},${y(point.pl)}`
-    )
-    .join(" ");
+  const points =
+    series
+      .map(
+        (point) =>
+          `${x(
+            point.price
+          )},${y(
+            point.pl
+          )}`
+      )
+      .join(" ");
 
   const samplePrices = [
     series[0]?.price,
@@ -3390,14 +4039,25 @@ function PayoffChart({
         value !== undefined
     )
     .filter(
-      (value, index, array) =>
+      (
+        value,
+        index,
+        array
+      ) =>
         array.findIndex(
           (item) =>
-            Math.abs(item - value) <
+            Math.abs(
+              item -
+                value
+            ) <
             0.01
-        ) === index
+        ) ===
+        index
     )
-    .sort((a, b) => a - b);
+    .sort(
+      (a, b) =>
+        a - b
+    );
 
   return (
     <div className="mt-4">
@@ -3409,14 +4069,18 @@ function PayoffChart({
         <div className="text-[9px] font-mono text-zinc-500">
           Spot{" "}
           <span className="text-zinc-200">
-            {money(spot)}
+            {money(
+              spot
+            )}
           </span>
 
           {" · "}
 
           Breakeven{" "}
           <span className="text-amber-300">
-            {money(economics.breakeven)}
+            {money(
+              economics.breakeven
+            )}
           </span>
         </div>
       </div>
@@ -3427,13 +4091,19 @@ function PayoffChart({
           className="w-full"
         >
           <line
-            x1={paddingLeft}
+            x1={
+              paddingLeft
+            }
             x2={
               width -
               paddingRight
             }
-            y1={zeroY}
-            y2={zeroY}
+            y1={
+              zeroY
+            }
+            y2={
+              zeroY
+            }
             stroke="currentColor"
             className="text-zinc-600"
             strokeDasharray="5 5"
@@ -3441,9 +4111,15 @@ function PayoffChart({
 
           {breakevenX !== null && (
             <line
-              x1={breakevenX}
-              x2={breakevenX}
-              y1={paddingTop}
+              x1={
+                breakevenX
+              }
+              x2={
+                breakevenX
+              }
+              y1={
+                paddingTop
+              }
               y2={
                 height -
                 paddingBottom
@@ -3456,9 +4132,15 @@ function PayoffChart({
 
           {spotX !== null && (
             <line
-              x1={spotX}
-              x2={spotX}
-              y1={paddingTop}
+              x1={
+                spotX
+              }
+              x2={
+                spotX
+              }
+              y1={
+                paddingTop
+              }
               y2={
                 height -
                 paddingBottom
@@ -3470,7 +4152,9 @@ function PayoffChart({
           )}
 
           <polyline
-            points={points}
+            points={
+              points
+            }
             fill="none"
             stroke="currentColor"
             className="text-emerald-400"
@@ -3498,58 +4182,70 @@ function PayoffChart({
           </thead>
 
           <tbody>
-            {samplePrices.map((price) => {
-              const pl = spreadPLAtExpiration(
-                strategy,
-                economics,
-                price
-              );
+            {samplePrices.map(
+              (price) => {
+                const pl =
+                  spreadPLAtExpiration(
+                    strategy,
+                    economics,
+                    price
+                  );
 
-              const returnOnRisk =
-                pl !== null &&
-                economics.maxLoss > 0
-                  ? (
-                      pl /
-                      economics.maxLoss
-                    ) * 100
-                  : null;
+                const returnOnRisk =
+                  pl !== null &&
+                  economics.maxLoss >
+                    0
+                    ? (
+                        pl /
+                        economics.maxLoss
+                      ) * 100
+                    : null;
 
-              return (
-                <tr
-                  key={price}
-                  className="border-b border-zinc-900"
-                >
-                  <td className="px-3 py-2">
-                    {money(price)}
-                  </td>
-
-                  <td
-                    className={`px-3 py-2 text-right ${
-                      pl > 0
-                        ? "text-emerald-300"
-                        : pl < 0
-                          ? "text-red-300"
-                          : ""
-                    }`}
+                return (
+                  <tr
+                    key={
+                      price
+                    }
+                    className="border-b border-zinc-900"
                   >
-                    {signedDollar(
-                      pl,
-                      0
-                    )}
-                  </td>
+                    <td className="px-3 py-2">
+                      {money(
+                        price
+                      )}
+                    </td>
 
-                  <td className="px-3 py-2 text-right">
-                    {returnOnRisk !== null
-                      ? `${
-                          returnOnRisk >= 0
-                            ? "+"
+                    <td
+                      className={`px-3 py-2 text-right ${
+                        pl > 0
+                          ? "text-emerald-300"
+                          : pl < 0
+                            ? "text-red-300"
                             : ""
-                        }${returnOnRisk.toFixed(1)}%`
-                      : "—"}
-                  </td>
-                </tr>
-              );
-            })}
+                      }`}
+                    >
+                      {signedDollar(
+                        pl,
+                        0
+                      )}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {returnOnRisk !==
+                      null
+                        ? `${
+                            returnOnRisk >=
+                            0
+                              ? "+"
+                              : ""
+                          }${returnOnRisk.toFixed(
+                            1
+                          )}%`
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              }
+            )}
           </tbody>
         </table>
       </div>
@@ -3596,26 +4292,35 @@ function ScenarioCalculator({
     spot,
 
     economics?.longLeg?.contract?.id,
+
     economics?.shortLeg?.contract?.id,
   ]);
 
   if (!economics) return null;
 
-  const result = calculateGreekScenario({
-    economics,
-    spot,
-    scenarioPrice,
-    days: daysForward,
-    ivPoints: ivChange,
-  });
+  const result =
+    calculateGreekScenario({
+      economics,
+
+      spot,
+
+      scenarioPrice,
+
+      days:
+        daysForward,
+
+      ivPoints:
+        ivChange,
+    });
 
   if (!result) return null;
 
-  const expirationPL = spreadPLAtExpiration(
-    strategy,
-    economics,
-    result.targetPrice
-  );
+  const expirationPL =
+    spreadPLAtExpiration(
+      strategy,
+      economics,
+      result.targetPrice
+    );
 
   const quickScenarios = [
     {
@@ -3660,9 +4365,17 @@ function ScenarioCalculator({
         <button
           type="button"
           onClick={() => {
-            setScenarioPrice(spot);
-            setDaysForward(0);
-            setIvChange(0);
+            setScenarioPrice(
+              spot
+            );
+
+            setDaysForward(
+              0
+            );
+
+            setIvChange(
+              0
+            );
           }}
           className="rounded border border-zinc-700 px-2.5 py-1 text-[9px] text-zinc-400"
         >
@@ -3671,22 +4384,31 @@ function ScenarioCalculator({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {quickScenarios.map((item) => (
-          <button
-            type="button"
-            key={item.label}
-            onClick={() =>
-              setScenarioPrice(
-                Number(
-                  item.price.toFixed(2)
+        {quickScenarios.map(
+          (item) => (
+            <button
+              type="button"
+              key={
+                item.label
+              }
+              onClick={() =>
+                setScenarioPrice(
+                  Number(
+                    item.price.toFixed(
+                      2
+                    )
+                  )
                 )
-              )
-            }
-            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-[10px] font-mono text-zinc-400"
-          >
-            {item.label} {money(item.price)}
-          </button>
-        ))}
+              }
+              className="rounded-lg border border-zinc-700 px-3 py-1.5 text-[10px] font-mono text-zinc-400"
+            >
+              {item.label}{" "}
+              {money(
+                item.price
+              )}
+            </button>
+          )
+        )}
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -3698,8 +4420,12 @@ function ScenarioCalculator({
           <input
             type="number"
             step="0.01"
-            value={scenarioPrice}
-            onChange={(event) =>
+            value={
+              scenarioPrice
+            }
+            onChange={(
+              event
+            ) =>
               setScenarioPrice(
                 event.target.value
               )
@@ -3716,8 +4442,13 @@ function ScenarioCalculator({
           <input
             type="number"
             min="0"
-            value={daysForward}
-            onChange={(event) =>
+            step="1"
+            value={
+              daysForward
+            }
+            onChange={(
+              event
+            ) =>
               setDaysForward(
                 event.target.value
               )
@@ -3734,8 +4465,12 @@ function ScenarioCalculator({
           <input
             type="number"
             step="0.5"
-            value={ivChange}
-            onChange={(event) =>
+            value={
+              ivChange
+            }
+            onChange={(
+              event
+            ) =>
               setIvChange(
                 event.target.value
               )
@@ -3748,7 +4483,9 @@ function ScenarioCalculator({
       <div className="mt-4 grid gap-2 lg:grid-cols-4">
         <MetricBox
           label="Est. Spread Value"
-          value={money(result.estimatedSpreadValue)}
+          value={money(
+            result.estimatedSpreadValue
+          )}
           valueClass="text-sky-300"
         />
 
@@ -3770,19 +4507,25 @@ function ScenarioCalculator({
         <MetricBox
           label="Approx. Return on Risk"
           value={
-            result.estimatedReturn !== null
+            result.estimatedReturn !==
+            null
               ? `${
-                  result.estimatedReturn >= 0
+                  result.estimatedReturn >=
+                  0
                     ? "+"
                     : ""
-                }${result.estimatedReturn.toFixed(1)}%`
+                }${result.estimatedReturn.toFixed(
+                  1
+                )}%`
               : "—"
           }
         />
 
         <MetricBox
           label="Approx. Net Delta"
-          value={signed(result.estimatedDelta)}
+          value={signed(
+            result.estimatedDelta
+          )}
         />
       </div>
 
@@ -3790,7 +4533,8 @@ function ScenarioCalculator({
         <MetricBox
           label="Delta"
           value={signedDollar(
-            result.deltaComponent * 100,
+            result.deltaComponent *
+              100,
             0
           )}
         />
@@ -3798,7 +4542,8 @@ function ScenarioCalculator({
         <MetricBox
           label="Gamma"
           value={signedDollar(
-            result.gammaComponent * 100,
+            result.gammaComponent *
+              100,
             0
           )}
         />
@@ -3806,7 +4551,8 @@ function ScenarioCalculator({
         <MetricBox
           label="Theta"
           value={signedDollar(
-            result.thetaComponent * 100,
+            result.thetaComponent *
+              100,
             0
           )}
         />
@@ -3814,7 +4560,8 @@ function ScenarioCalculator({
         <MetricBox
           label="Vega"
           value={signedDollar(
-            result.vegaComponent * 100,
+            result.vegaComponent *
+              100,
             0
           )}
         />
@@ -3826,12 +4573,17 @@ function ScenarioCalculator({
         </div>
 
         <div className="mt-2 font-mono">
-          {money(result.targetPrice)} →{" "}
+          {money(
+            result.targetPrice
+          )}{" "}
+          →{" "}
           <span
             className={
               expirationPL > 0
                 ? "text-emerald-300"
-                : "text-red-300"
+                : expirationPL < 0
+                  ? "text-red-300"
+                  : "text-zinc-300"
             }
           >
             {signedDollar(
@@ -3840,6 +4592,12 @@ function ScenarioCalculator({
             )}
           </span>
         </div>
+      </div>
+
+      <div className="mt-3 text-[9px] text-zinc-600">
+        Greek scenario values are local approximations and become less
+        reliable as price, time, or implied volatility move farther from
+        current conditions.
       </div>
     </div>
   );
@@ -3889,9 +4647,9 @@ function ScenarioMatrix({
 
   return (
     <div className="mt-5 rounded-xl border border-violet-500/20 bg-violet-500/[0.025] p-4">
-      <div className="flex justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[9px] uppercase text-violet-400">
+          <div className="text-[9px] uppercase tracking-widest text-violet-400">
             Scenario matrix
           </div>
 
@@ -3901,21 +4659,28 @@ function ScenarioMatrix({
         </div>
 
         <div className="flex gap-2">
-          {dayChoices.map((days) => (
-            <button
-              key={days}
-              onClick={() =>
-                setDaysForward(days)
-              }
-              className={`rounded border px-2.5 py-1 text-[10px] ${
-                daysForward === days
-                  ? "border-violet-400 text-violet-300"
-                  : "border-zinc-700 text-zinc-500"
-              }`}
-            >
-              {days}d
-            </button>
-          ))}
+          {dayChoices.map(
+            (days) => (
+              <button
+                key={
+                  days
+                }
+                type="button"
+                onClick={() =>
+                  setDaysForward(
+                    days
+                  )
+                }
+                className={`rounded border px-2.5 py-1 text-[10px] ${
+                  daysForward === days
+                    ? "border-violet-400 bg-violet-400/10 text-violet-300"
+                    : "border-zinc-700 text-zinc-500"
+                }`}
+              >
+                {days}d
+              </button>
+            )
+          )}
         </div>
       </div>
 
@@ -3927,93 +4692,123 @@ function ScenarioMatrix({
                 Stock move
               </th>
 
-              {ivChanges.map((iv) => (
-                <th
-                  key={iv}
-                  className="px-3 py-2 text-center"
-                >
-                  IV{" "}
-                  {iv >= 0 ? "+" : ""}
-                  {iv} pts
-                </th>
-              ))}
+              {ivChanges.map(
+                (iv) => (
+                  <th
+                    key={
+                      iv
+                    }
+                    className="px-3 py-2 text-center"
+                  >
+                    IV{" "}
+                    {iv >= 0
+                      ? "+"
+                      : ""}
+                    {iv} pts
+                  </th>
+                )
+              )}
             </tr>
           </thead>
 
           <tbody>
-            {stockMoves.map((stockMove) => {
-              const scenarioPrice =
-                spot *
-                (
-                  1 +
-                  stockMove /
-                    100
+            {stockMoves.map(
+              (
+                stockMove
+              ) => {
+                const scenarioPrice =
+                  spot *
+                  (
+                    1 +
+                    stockMove /
+                      100
+                  );
+
+                return (
+                  <tr
+                    key={
+                      stockMove
+                    }
+                    className="border-b border-zinc-900"
+                  >
+                    <td className="px-3 py-3">
+                      <b>
+                        {stockMove >
+                        0
+                          ? "+"
+                          : ""}
+                        {stockMove}%
+                      </b>
+
+                      <div className="text-[9px] text-zinc-600">
+                        {money(
+                          scenarioPrice
+                        )}
+                      </div>
+                    </td>
+
+                    {ivChanges.map(
+                      (iv) => {
+                        const result =
+                          calculateGreekScenario({
+                            economics,
+                            spot,
+                            scenarioPrice,
+
+                            days:
+                              daysForward,
+
+                            ivPoints:
+                              iv,
+                          });
+
+                        const pl =
+                          result?.estimatedPL;
+
+                        const returnOnRisk =
+                          result?.estimatedReturn;
+
+                        return (
+                          <td
+                            key={`${stockMove}-${iv}`}
+                            className={`px-3 py-3 text-center ${
+                              pl > 25
+                                ? "bg-emerald-500/10 text-emerald-300"
+                                : pl < -25
+                                  ? "bg-red-500/10 text-red-300"
+                                  : "text-zinc-300"
+                            }`}
+                          >
+                            <b>
+                              {signedDollar(
+                                pl,
+                                0
+                              )}
+                            </b>
+
+                            <div className="mt-1 text-[9px] opacity-70">
+                              {returnOnRisk !==
+                              null &&
+                              returnOnRisk !==
+                              undefined
+                                ? `${
+                                    returnOnRisk >=
+                                    0
+                                      ? "+"
+                                      : ""
+                                  }${returnOnRisk.toFixed(
+                                    1
+                                  )}% risk`
+                                : "—"}
+                            </div>
+                          </td>
+                        );
+                      }
+                    )}
+                  </tr>
                 );
-
-              return (
-                <tr
-                  key={stockMove}
-                  className="border-b border-zinc-900"
-                >
-                  <td className="px-3 py-3">
-                    <b>
-                      {stockMove > 0
-                        ? "+"
-                        : ""}
-                      {stockMove}%
-                    </b>
-
-                    <div className="text-[9px] text-zinc-600">
-                      {money(scenarioPrice)}
-                    </div>
-                  </td>
-
-                  {ivChanges.map((iv) => {
-                    const result =
-                      calculateGreekScenario({
-                        economics,
-                        spot,
-                        scenarioPrice,
-
-                        days: daysForward,
-
-                        ivPoints: iv,
-                      });
-
-                    const pl =
-                      result?.estimatedPL;
-
-                    return (
-                      <td
-                        key={`${stockMove}-${iv}`}
-                        className={`px-3 py-3 text-center ${
-                          pl > 25
-                            ? "bg-emerald-500/10 text-emerald-300"
-                            : pl < -25
-                              ? "bg-red-500/10 text-red-300"
-                              : ""
-                        }`}
-                      >
-                        <b>
-                          {signedDollar(
-                            pl,
-                            0
-                          )}
-                        </b>
-
-                        <div className="text-[9px]">
-                          {result?.estimatedReturn !== null
-                            ? `${result.estimatedReturn.toFixed(
-                                1
-                              )}% risk`
-                            : "—"}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
+              }
+            )}
           </tbody>
         </table>
       </div>
@@ -4022,7 +4817,7 @@ function ScenarioMatrix({
 }
 
 /* =========================================================
-   STRATEGY PANEL
+   AUTOMATIC STRATEGY PANEL
 ========================================================= */
 
 function StrategyPanel({
@@ -4030,17 +4825,20 @@ function StrategyPanel({
   expiration,
   spot,
 }) {
-  const strategy = analysis.strategy;
+  const strategy =
+    analysis.strategy;
 
   const economics =
-    calculateSpreadEconomics(strategy);
+    calculateSpreadEconomics(
+      strategy
+    );
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-      <div className="flex justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[9px] uppercase text-zinc-500">
-            Strategy structure to research
+          <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+            Automatic strategy structure
           </div>
 
           <div className="mt-1 text-lg font-bold">
@@ -4049,9 +4847,11 @@ function StrategyPanel({
 
           <div
             className={`mt-1 text-xs ${
-              strategy.bias === "Bullish"
+              strategy.bias ===
+              "Bullish"
                 ? "text-emerald-300"
-                : strategy.bias === "Bearish"
+                : strategy.bias ===
+                    "Bearish"
                   ? "text-red-300"
                   : "text-zinc-400"
             }`}
@@ -4060,8 +4860,10 @@ function StrategyPanel({
           </div>
         </div>
 
-        <div className="h-fit rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400">
-          {dateLabel(expiration)}
+        <div className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400">
+          {dateLabel(
+            expiration
+          )}
         </div>
       </div>
 
@@ -4069,82 +4871,31 @@ function StrategyPanel({
         {strategy.description}
       </p>
 
-      {strategy.legs.length > 0 && (
+      {strategy.legs.length >
+        0 && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {strategy.legs.map((leg, index) => {
-            const spreadPct =
-              legSpreadPercent(
-                leg.contract
-              );
-
-            return (
-              <div
+          {strategy.legs.map(
+            (
+              leg,
+              index
+            ) => (
+              <ContractCard
                 key={`${leg.action}-${index}`}
-                className="rounded-lg border border-zinc-800 p-3"
-              >
-                <div className="text-[9px] uppercase text-zinc-500">
-                  {leg.action}
-                </div>
-
-                <div className="mt-1 font-bold">
-                  {money(
-                    leg.contract.strike
-                  )}
-                </div>
-
-                <div className="mt-2 grid grid-cols-3 gap-2 text-[9px] text-zinc-400">
-                  <span>
-                    Δ{" "}
-                    {leg.contract.delta?.toFixed(
-                      3
-                    ) ?? "—"}
-                  </span>
-
-                  <span>
-                    IV{" "}
-                    {pct(
-                      leg.contract.iv
-                    )}
-                  </span>
-
-                  <span>
-                    Ask{" "}
-                    {money(
-                      leg.contract.ask
-                    )}
-                  </span>
-
-                  <span>
-                    Bid{" "}
-                    {money(
-                      leg.contract.bid
-                    )}
-                  </span>
-
-                  <span>
-                    Vol{" "}
-                    {compact(
-                      leg.contract.volume
-                    )}
-                  </span>
-
-                  <span>
-                    OI{" "}
-                    {compact(
-                      leg.contract.openInterest
-                    )}
-                  </span>
-
-                  <span className="col-span-3">
-                    Bid/ask width:{" "}
-                    {spreadPct !== null
-                      ? `${spreadPct.toFixed(1)}% of mark`
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+                title={
+                  leg.action
+                }
+                contract={
+                  leg.contract
+                }
+                accentClass={
+                  leg.side ===
+                  "long"
+                    ? "text-sky-300"
+                    : "text-amber-300"
+                }
+              />
+            )
+          )}
         </div>
       )}
 
@@ -4157,6 +4908,7 @@ function StrategyPanel({
                 economics.entryDebit
               )}
               valueClass="text-amber-300"
+              subtext="Long ask − short bid"
             />
 
             <MetricBox
@@ -4190,17 +4942,27 @@ function StrategyPanel({
 
             <MetricBox
               label="Max Profit"
-              value={dollar(
-                economics.maxProfit
-              )}
+              value={
+                economics.maxProfit !==
+                  null &&
+                economics.maxProfit >=
+                  0
+                  ? dollar(
+                      economics.maxProfit
+                    )
+                  : "—"
+              }
               valueClass="text-emerald-300"
             />
 
             <MetricBox
               label="Reward / Risk"
               value={
-                economics.rewardRisk !== null
-                  ? `${economics.rewardRisk.toFixed(2)}×`
+                economics.rewardRisk !==
+                null
+                  ? `${economics.rewardRisk.toFixed(
+                      2
+                    )}×`
                   : "—"
               }
             />
@@ -4245,20 +5007,36 @@ function StrategyPanel({
           </div>
 
           <PayoffChart
-            strategy={strategy}
-            economics={economics}
-            spot={spot}
+            strategy={
+              strategy
+            }
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
           />
 
           <ScenarioCalculator
-            strategy={strategy}
-            economics={economics}
-            spot={spot}
+            strategy={
+              strategy
+            }
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
           />
 
           <ScenarioMatrix
-            economics={economics}
-            spot={spot}
+            economics={
+              economics
+            }
+            spot={
+              spot
+            }
           />
 
           <div className="mt-4">
@@ -4275,7 +5053,8 @@ function StrategyPanel({
                   economics.longLeg.contract.openInterest
                 )}`}
                 subtext={
-                  economics.longSpreadPct !== null
+                  economics.longSpreadPct !==
+                  null
                     ? `Bid/ask width ${economics.longSpreadPct.toFixed(
                         1
                       )}%`
@@ -4291,7 +5070,8 @@ function StrategyPanel({
                   economics.shortLeg.contract.openInterest
                 )}`}
                 subtext={
-                  economics.shortSpreadPct !== null
+                  economics.shortSpreadPct !==
+                  null
                     ? `Bid/ask width ${economics.shortSpreadPct.toFixed(
                         1
                       )}%`
@@ -4299,49 +5079,12 @@ function StrategyPanel({
                 }
               />
             </div>
-
-            <div
-              className={`mt-2 rounded-lg border px-3 py-2 ${
-                economics.warnings.length > 0
-                  ? "border-amber-500/30 bg-amber-500/[0.05]"
-                  : "border-emerald-500/20 bg-emerald-500/[0.03]"
-              }`}
-            >
-              <div
-                className={`text-[9px] uppercase tracking-widest ${
-                  economics.warnings.length > 0
-                    ? "text-amber-400"
-                    : "text-emerald-400"
-                }`}
-              >
-                Liquidity check
-              </div>
-
-              {economics.warnings.length > 0 ? (
-                <ul className="mt-1 space-y-1 text-[10px] text-zinc-300">
-                  {economics.warnings.map(
-                    (
-                      warning,
-                      index
-                    ) => (
-                      <li key={index}>
-                        • {warning}
-                      </li>
-                    )
-                  )}
-                </ul>
-              ) : (
-                <div className="mt-1 text-[10px] text-zinc-400">
-                  No obvious liquidity warning in the selected legs.
-                </div>
-              )}
-            </div>
           </div>
         </>
       )}
 
-      <div className="mt-4 rounded-lg border border-amber-500/20 p-3">
-        <div className="text-[9px] uppercase text-amber-400">
+      <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-3">
+        <div className="text-[9px] uppercase tracking-widest text-amber-400">
           Invalidation
         </div>
 
@@ -4354,10 +5097,753 @@ function StrategyPanel({
 }
 
 /* =========================================================
-   TABLE CELL
+   NEW — MANUAL STRATEGY BUILDER
 ========================================================= */
 
-function Cell({ value }) {
+function ManualStrategyBuilder({
+  contracts,
+  expiration,
+  spot,
+  loading,
+}) {
+  const [
+    optionType,
+    setOptionType,
+  ] = useState("call");
+
+  const [
+    longStrike,
+    setLongStrike,
+  ] = useState("");
+
+  const [
+    shortStrike,
+    setShortStrike,
+  ] = useState("");
+
+  const typedContracts =
+    useMemo(
+      () =>
+        contracts
+          .filter(
+            (contract) =>
+              contract.type ===
+              optionType
+          )
+          .sort(
+            (a, b) =>
+              a.strike -
+              b.strike
+          ),
+      [
+        contracts,
+        optionType,
+      ]
+    );
+
+  function chooseDefaults() {
+    if (!typedContracts.length) {
+      setLongStrike("");
+      setShortStrike("");
+      return;
+    }
+
+    const longContract =
+      optionType === "call"
+        ? closestByDelta(
+            typedContracts,
+            0.55
+          )
+        : closestByDelta(
+            typedContracts,
+            0.55,
+            true
+          );
+
+    if (!longContract) {
+      return;
+    }
+
+    const shortCandidates =
+      optionType === "call"
+        ? typedContracts.filter(
+            (contract) =>
+              contract.strike >
+              longContract.strike
+          )
+        : typedContracts.filter(
+            (contract) =>
+              contract.strike <
+              longContract.strike
+          );
+
+    const shortContract =
+      optionType === "call"
+        ? closestByDelta(
+            shortCandidates,
+            0.3
+          )
+        : closestByDelta(
+            shortCandidates,
+            0.3,
+            true
+          );
+
+    setLongStrike(
+      longContract.strike
+    );
+
+    setShortStrike(
+      shortContract?.strike ??
+        ""
+    );
+  }
+
+  useEffect(() => {
+    chooseDefaults();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    contracts,
+    optionType,
+  ]);
+
+  const longContract =
+    typedContracts.find(
+      (contract) =>
+        contract.strike ===
+        Number(
+          longStrike
+        )
+    ) ??
+    null;
+
+  const validShortContracts =
+    longContract
+      ? typedContracts.filter(
+          (contract) =>
+            optionType ===
+            "call"
+              ? contract.strike >
+                longContract.strike
+              : contract.strike <
+                longContract.strike
+        )
+      : [];
+
+  useEffect(() => {
+    if (
+      !longContract ||
+      !validShortContracts.length
+    ) {
+      return;
+    }
+
+    const currentShortIsValid =
+      validShortContracts.some(
+        (contract) =>
+          contract.strike ===
+          Number(
+            shortStrike
+          )
+      );
+
+    if (
+      currentShortIsValid
+    ) {
+      return;
+    }
+
+    const defaultShort =
+      optionType ===
+      "call"
+        ? closestByDelta(
+            validShortContracts,
+            0.3
+          )
+        : closestByDelta(
+            validShortContracts,
+            0.3,
+            true
+          );
+
+    setShortStrike(
+      defaultShort?.strike ??
+        validShortContracts[0]?.strike ??
+        ""
+    );
+  }, [
+    longStrike,
+    optionType,
+    longContract,
+    validShortContracts,
+    shortStrike,
+  ]);
+
+  const shortContract =
+    validShortContracts.find(
+      (contract) =>
+        contract.strike ===
+        Number(
+          shortStrike
+        )
+    ) ??
+    null;
+
+  const manualStrategy =
+    longContract &&
+    shortContract
+      ? {
+          name:
+            optionType ===
+            "call"
+              ? "Manual Bull Call Debit Spread"
+              : "Manual Bear Put Debit Spread",
+
+          bias:
+            optionType ===
+            "call"
+              ? "Bullish"
+              : "Bearish",
+
+          description:
+            "This spread uses the exact contracts selected below rather than the scanner's automatic delta-based contract selection.",
+
+          legs: [
+            {
+              action:
+                optionType ===
+                "call"
+                  ? "Long call"
+                  : "Long put",
+
+              side:
+                "long",
+
+              contract:
+                longContract,
+            },
+
+            {
+              action:
+                optionType ===
+                "call"
+                  ? "Short call"
+                  : "Short put",
+
+              side:
+                "short",
+
+              contract:
+                shortContract,
+            },
+          ],
+
+          invalidation:
+            "Manual structure. Invalidation depends on the thesis and price levels being evaluated.",
+        }
+      : null;
+
+  const economics =
+    manualStrategy
+      ? calculateSpreadEconomics(
+          manualStrategy
+        )
+      : null;
+
+  if (loading) {
+    return (
+      <div className="mt-5 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.025] p-4">
+        <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
+          Manual strategy builder
+        </div>
+
+        <div className="mt-2 text-sm text-zinc-400">
+          Waiting for full-chain quotes...
+        </div>
+      </div>
+    );
+  }
+
+  if (!contracts.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/[0.025] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
+            Manual strategy builder
+          </div>
+
+          <div className="mt-1 text-lg font-bold">
+            Choose your own vertical spread
+          </div>
+
+          <div className="mt-1 text-[10px] text-zinc-500">
+            Uses the full {dateLabel(
+              expiration
+            )} option chain. Analysis only; no order is submitted.
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={
+            chooseDefaults
+          }
+          className="rounded border border-zinc-700 px-3 py-1.5 text-[9px] uppercase tracking-widest text-zinc-400 hover:border-fuchsia-400/50 hover:text-fuchsia-300"
+        >
+          Reset Legs
+        </button>
+      </div>
+
+      {/* CALL / PUT */}
+
+      <div className="mt-4">
+        <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+          Option type
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setOptionType(
+                "call"
+              )
+            }
+            className={`rounded-lg border px-4 py-2 text-[11px] font-bold ${
+              optionType ===
+              "call"
+                ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                : "border-zinc-700 text-zinc-500"
+            }`}
+          >
+            CALL SPREAD
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setOptionType(
+                "put"
+              )
+            }
+            className={`rounded-lg border px-4 py-2 text-[11px] font-bold ${
+              optionType ===
+              "put"
+                ? "border-red-400/60 bg-red-400/10 text-red-300"
+                : "border-zinc-700 text-zinc-500"
+            }`}
+          >
+            PUT SPREAD
+          </button>
+        </div>
+      </div>
+
+      {/* STRIKE SELECTORS */}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="rounded-lg border border-sky-500/20 bg-black/25 p-3">
+          <div className="text-[9px] uppercase tracking-widest text-sky-400">
+            Long {optionType}
+          </div>
+
+          <select
+            value={
+              longStrike
+            }
+            onChange={(
+              event
+            ) =>
+              setLongStrike(
+                Number(
+                  event.target.value
+                )
+              )
+            }
+            className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white"
+          >
+            {typedContracts.map(
+              (contract) => (
+                <option
+                  key={
+                    contract.id
+                  }
+                  value={
+                    contract.strike
+                  }
+                >
+                  {money(
+                    contract.strike
+                  )} · Δ{" "}
+                  {contract.delta !==
+                  null
+                    ? contract.delta.toFixed(
+                        3
+                      )
+                    : "—"}{" "}
+                  · Mark{" "}
+                  {money(
+                    contract.mark
+                  )}
+                </option>
+              )
+            )}
+          </select>
+
+          <div className="mt-2 text-[9px] text-zinc-600">
+            You pay premium for this leg.
+          </div>
+        </label>
+
+        <label className="rounded-lg border border-amber-500/20 bg-black/25 p-3">
+          <div className="text-[9px] uppercase tracking-widest text-amber-400">
+            Short {optionType}
+          </div>
+
+          <select
+            value={
+              shortStrike
+            }
+            onChange={(
+              event
+            ) =>
+              setShortStrike(
+                Number(
+                  event.target.value
+                )
+              )
+            }
+            className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-white"
+          >
+            {validShortContracts.map(
+              (contract) => (
+                <option
+                  key={
+                    contract.id
+                  }
+                  value={
+                    contract.strike
+                  }
+                >
+                  {money(
+                    contract.strike
+                  )} · Δ{" "}
+                  {contract.delta !==
+                  null
+                    ? contract.delta.toFixed(
+                        3
+                      )
+                    : "—"}{" "}
+                  · Mark{" "}
+                  {money(
+                    contract.mark
+                  )}
+                </option>
+              )
+            )}
+          </select>
+
+          <div className="mt-2 text-[9px] text-zinc-600">
+            {optionType ===
+            "call"
+              ? "Short strike must be above the long call."
+              : "Short strike must be below the long put."}
+          </div>
+        </label>
+      </div>
+
+      {/* CONTRACT DETAILS */}
+
+      {longContract &&
+        shortContract && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <ContractCard
+            title={
+              optionType ===
+              "call"
+                ? "Selected Long Call"
+                : "Selected Long Put"
+            }
+            contract={
+              longContract
+            }
+            accentClass="text-sky-300"
+          />
+
+          <ContractCard
+            title={
+              optionType ===
+              "call"
+                ? "Selected Short Call"
+                : "Selected Short Put"
+            }
+            contract={
+              shortContract
+            }
+            accentClass="text-amber-300"
+          />
+        </div>
+      )}
+
+      {/* ECONOMICS */}
+
+      {economics && (
+        <>
+          <div className="mt-5 border-t border-zinc-800 pt-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                Manual spread economics
+              </div>
+
+              <div
+                className={`text-[10px] font-bold ${
+                  manualStrategy.bias ===
+                  "Bullish"
+                    ? "text-emerald-300"
+                    : "text-red-300"
+                }`}
+              >
+                {manualStrategy.name}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricBox
+                label="Est. Net Debit"
+                value={money(
+                  economics.entryDebit
+                )}
+                valueClass="text-amber-300"
+                subtext="Long ask − short bid"
+              />
+
+              <MetricBox
+                label="Midpoint Debit"
+                value={money(
+                  economics.midpointDebit
+                )}
+                subtext="Long mark − short mark"
+              />
+
+              <MetricBox
+                label="Spread Width"
+                value={money(
+                  economics.width
+                )}
+              />
+
+              <MetricBox
+                label="Breakeven"
+                value={money(
+                  economics.breakeven
+                )}
+              />
+
+              <MetricBox
+                label="Max Loss"
+                value={dollar(
+                  economics.maxLoss
+                )}
+                valueClass="text-red-300"
+              />
+
+              <MetricBox
+                label="Max Profit"
+                value={
+                  economics.maxProfit !==
+                    null &&
+                  economics.maxProfit >=
+                    0
+                    ? dollar(
+                        economics.maxProfit
+                      )
+                    : "—"
+                }
+                valueClass="text-emerald-300"
+              />
+
+              <MetricBox
+                label="Reward / Risk"
+                value={
+                  economics.rewardRisk !==
+                  null
+                    ? `${economics.rewardRisk.toFixed(
+                        2
+                      )}×`
+                    : "—"
+                }
+              />
+
+              <MetricBox
+                label="Spot"
+                value={money(
+                  spot
+                )}
+              />
+            </div>
+          </div>
+
+          {/* NET GREEKS */}
+
+          <div className="mt-4">
+            <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+              Manual spread net Greeks
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              <MetricBox
+                label="Delta"
+                value={signed(
+                  economics.netDelta
+                )}
+              />
+
+              <MetricBox
+                label="Gamma"
+                value={signed(
+                  economics.netGamma,
+                  4
+                )}
+              />
+
+              <MetricBox
+                label="Theta"
+                value={signed(
+                  economics.netTheta
+                )}
+                valueClass={
+                  economics.netTheta <
+                  0
+                    ? "text-red-300"
+                    : "text-emerald-300"
+                }
+              />
+
+              <MetricBox
+                label="Vega"
+                value={signed(
+                  economics.netVega
+                )}
+              />
+            </div>
+          </div>
+
+          {/* LIQUIDITY */}
+
+          <div
+            className={`mt-4 rounded-lg border px-3 py-3 ${
+              economics.warnings.length >
+              0
+                ? "border-amber-500/30 bg-amber-500/[0.05]"
+                : "border-emerald-500/20 bg-emerald-500/[0.03]"
+            }`}
+          >
+            <div
+              className={`text-[9px] uppercase tracking-widest ${
+                economics.warnings.length >
+                0
+                  ? "text-amber-400"
+                  : "text-emerald-400"
+              }`}
+            >
+              Manual spread liquidity check
+            </div>
+
+            {economics.warnings.length >
+            0 ? (
+              <ul className="mt-2 space-y-1 text-[10px] text-zinc-400">
+                {economics.warnings.map(
+                  (
+                    warning,
+                    index
+                  ) => (
+                    <li
+                      key={
+                        index
+                      }
+                    >
+                      •{" "}
+                      {warning}
+                    </li>
+                  )
+                )}
+              </ul>
+            ) : (
+              <div className="mt-2 text-[10px] text-zinc-400">
+                No obvious liquidity warning in the selected contracts.
+              </div>
+            )}
+          </div>
+
+          {/* MANUAL PAYOFF */}
+
+          <div className="mt-5 border-t border-fuchsia-500/20 pt-4">
+            <div className="text-[9px] uppercase tracking-widest text-fuchsia-400">
+              Manual spread analysis
+            </div>
+
+            <PayoffChart
+              strategy={
+                manualStrategy
+              }
+              economics={
+                economics
+              }
+              spot={
+                spot
+              }
+            />
+
+            <ScenarioCalculator
+              strategy={
+                manualStrategy
+              }
+              economics={
+                economics
+              }
+              spot={
+                spot
+              }
+            />
+
+            <ScenarioMatrix
+              economics={
+                economics
+              }
+              spot={
+                spot
+              }
+            />
+          </div>
+        </>
+      )}
+
+      {!shortContract &&
+        longContract && (
+        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.05] p-3 text-[10px] text-amber-300">
+          No valid short strike is available for the selected long contract.
+        </div>
+      )}
+
+      <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+        Manual calculations use the displayed Robinhood bid, ask, mark and
+        current Greeks. Conservative entry debit uses the long ask minus the
+        short bid. Scenario calculations remain local Greek approximations.
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   OPTION TABLE CELL
+========================================================= */
+
+function Cell({
+  value,
+}) {
   return (
     <td className="whitespace-nowrap px-2 py-1.5 text-right font-mono text-[10px]">
       {value}
@@ -4443,7 +5929,7 @@ export default function TickerDetailModal({
     setFullChainError,
   ] = useState("");
 
-  /* EXPIRATIONS */
+  /* LOAD EXPIRATIONS */
 
   useEffect(() => {
     if (!data?.ticker) return;
@@ -4452,18 +5938,25 @@ export default function TickerDetailModal({
 
     async function load() {
       try {
-        const payload = await callRobinhood(
-          "get_option_chains",
-          {
-            underlying_symbol: data.ticker,
-          }
-        );
+        const payload =
+          await callRobinhood(
+            "get_option_chains",
+            {
+              underlying_symbol:
+                data.ticker,
+            }
+          );
 
         if (cancelled) return;
 
-        const dates = getExpirations(payload);
+        const dates =
+          getExpirations(
+            payload
+          );
 
-        setExpirations(dates);
+        setExpirations(
+          dates
+        );
 
         setExpiration(
           data.expiration &&
@@ -4477,7 +5970,9 @@ export default function TickerDetailModal({
         );
       } catch (err) {
         if (!cancelled) {
-          setError(err.message);
+          setError(
+            err.message
+          );
         }
       }
     }
@@ -4492,7 +5987,7 @@ export default function TickerDetailModal({
     data?.expiration,
   ]);
 
-  /* ALL INSTRUMENTS */
+  /* LOAD ALL CONTRACT INSTRUMENTS */
 
   useEffect(() => {
     if (
@@ -4505,8 +6000,13 @@ export default function TickerDetailModal({
     let cancelled = false;
 
     async function load() {
-      setInstrumentLoading(true);
-      setVisibleLoading(true);
+      setInstrumentLoading(
+        true
+      );
+
+      setVisibleLoading(
+        true
+      );
 
       setError("");
       setFullChainError("");
@@ -4535,11 +6035,15 @@ export default function TickerDetailModal({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message);
+          setError(
+            err.message
+          );
         }
       } finally {
         if (!cancelled) {
-          setInstrumentLoading(false);
+          setInstrumentLoading(
+            false
+          );
         }
       }
     }
@@ -4554,22 +6058,33 @@ export default function TickerDetailModal({
     expiration,
   ]);
 
-  /* VISIBLE STRIKES */
+  /* LOAD VISIBLE ±5 / ±10 */
 
   useEffect(() => {
-    if (instrumentLoading) return;
+    if (
+      instrumentLoading
+    ) {
+      return;
+    }
 
-    if (!allInstruments.length) {
+    if (
+      !allInstruments.length
+    ) {
       setInstruments([]);
       setQuotes([]);
-      setVisibleLoading(false);
+      setVisibleLoading(
+        false
+      );
+
       return;
     }
 
     let cancelled = false;
 
     async function load() {
-      setVisibleLoading(true);
+      setVisibleLoading(
+        true
+      );
 
       try {
         const visible =
@@ -4598,11 +6113,15 @@ export default function TickerDetailModal({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message);
+          setError(
+            err.message
+          );
         }
       } finally {
         if (!cancelled) {
-          setVisibleLoading(false);
+          setVisibleLoading(
+            false
+          );
         }
       }
     }
@@ -4619,7 +6138,7 @@ export default function TickerDetailModal({
     strikeRange,
   ]);
 
-  /* FULL CHAIN */
+  /* LOAD FULL CHAIN QUOTES */
 
   useEffect(() => {
     if (
@@ -4632,12 +6151,18 @@ export default function TickerDetailModal({
     let cancelled = false;
 
     async function load() {
-      setFullChainLoading(true);
-      setFullChainError("");
+      setFullChainLoading(
+        true
+      );
+
+      setFullChainError(
+        ""
+      );
 
       setFullChainProgress({
         completed: 0,
-        total: allInstruments.length,
+        total:
+          allInstruments.length,
       });
 
       try {
@@ -4649,17 +6174,20 @@ export default function TickerDetailModal({
             ),
 
             {
-              onProgress: ({
-                completed,
-                total,
-              }) => {
-                if (!cancelled) {
-                  setFullChainProgress({
-                    completed,
-                    total,
-                  });
-                }
-              },
+              onProgress:
+                ({
+                  completed,
+                  total,
+                }) => {
+                  if (
+                    !cancelled
+                  ) {
+                    setFullChainProgress({
+                      completed,
+                      total,
+                    });
+                  }
+                },
             }
           );
 
@@ -4676,7 +6204,9 @@ export default function TickerDetailModal({
         }
       } finally {
         if (!cancelled) {
-          setFullChainLoading(false);
+          setFullChainLoading(
+            false
+          );
         }
       }
     }
@@ -4694,49 +6224,71 @@ export default function TickerDetailModal({
   const {
     rows,
     atmStrike,
-  } = useMemo(
-    () =>
-      buildChainRows(
+  } =
+    useMemo(
+      () =>
+        buildChainRows(
+          instruments,
+          quotes,
+          data.price,
+          strikeRange
+        ),
+      [
         instruments,
         quotes,
         data.price,
-        strikeRange
-      ),
-    [
-      instruments,
-      quotes,
-      data.price,
-      strikeRange,
-    ]
-  );
+        strikeRange,
+      ]
+    );
 
-  const analysis = useMemo(
-    () =>
-      analyzeSetup(
+  const analysis =
+    useMemo(
+      () =>
+        analyzeSetup(
+          data,
+          rows,
+          atmStrike
+        ),
+      [
         data,
         rows,
-        atmStrike
-      ),
-    [
-      data,
-      rows,
-      atmStrike,
-    ]
-  );
+        atmStrike,
+      ]
+    );
 
-  const fullChainAnalysis = useMemo(
-    () =>
-      buildFullChainAnalysis(
+  const fullChainAnalysis =
+    useMemo(
+      () =>
+        buildFullChainAnalysis(
+          allInstruments,
+          fullChainQuotes,
+          data.price
+        ),
+      [
         allInstruments,
         fullChainQuotes,
-        data.price
-      ),
-    [
-      allInstruments,
-      fullChainQuotes,
-      data.price,
-    ]
-  );
+        data.price,
+      ]
+    );
+
+  /*
+    NEW:
+    Give the manual builder every quoted contract
+    from the selected expiration.
+  */
+
+  const fullChainContracts =
+    useMemo(
+      () =>
+        buildNormalizedContracts(
+          allInstruments,
+          fullChainQuotes
+        ),
+      [
+        allInstruments,
+        fullChainQuotes,
+      ]
+    );
 
   const loading =
     instrumentLoading ||
@@ -4745,11 +6297,15 @@ export default function TickerDetailModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={
+        onClose
+      }
     >
       <div
         className="flex max-h-[95vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl"
-        onClick={(event) =>
+        onClick={(
+          event
+        ) =>
           event.stopPropagation()
         }
       >
@@ -4811,7 +6367,9 @@ export default function TickerDetailModal({
             </div>
 
             <button
-              onClick={onClose}
+              onClick={
+                onClose
+              }
               className="text-3xl text-zinc-500 hover:text-white"
             >
               ×
@@ -4824,45 +6382,62 @@ export default function TickerDetailModal({
             </span>
 
             <select
-              value={expiration}
-              onChange={(event) =>
+              value={
+                expiration
+              }
+              onChange={(
+                event
+              ) =>
                 setExpiration(
                   event.target.value
                 )
               }
               className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs"
             >
-              {expirations.map((date) => (
-                <option
-                  key={date}
-                  value={date}
-                >
-                  {dateLabel(date)}
-                </option>
-              ))}
+              {expirations.map(
+                (date) => (
+                  <option
+                    key={
+                      date
+                    }
+                    value={
+                      date
+                    }
+                  >
+                    {dateLabel(
+                      date
+                    )}
+                  </option>
+                )
+              )}
             </select>
 
             <span className="ml-2 text-xs text-zinc-500">
               Strike range
             </span>
 
-            {[5, 10].map((range) => (
-              <button
-                key={range}
-                onClick={() =>
-                  setStrikeRange(
+            {[5, 10].map(
+              (range) => (
+                <button
+                  key={
                     range
-                  )
-                }
-                className={`rounded border px-3 py-2 text-xs ${
-                  strikeRange === range
-                    ? "border-amber-400 bg-amber-400/10 text-amber-300"
-                    : "border-zinc-700 text-zinc-400"
-                }`}
-              >
-                ±{range}
-              </button>
-            ))}
+                  }
+                  onClick={() =>
+                    setStrikeRange(
+                      range
+                    )
+                  }
+                  className={`rounded border px-3 py-2 text-xs ${
+                    strikeRange ===
+                    range
+                      ? "border-amber-400 bg-amber-400/10 text-amber-300"
+                      : "border-zinc-700 text-zinc-400"
+                  }`}
+                >
+                  ±{range}
+                </button>
+              )
+            )}
 
             <span className="ml-auto text-[9px] uppercase tracking-widest text-zinc-600">
               Read-only market data
@@ -4879,312 +6454,382 @@ export default function TickerDetailModal({
             </div>
           )}
 
-          {!loading && error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 p-4 text-red-300">
-              {error}
-            </div>
-          )}
-
-          {!loading && !error && (
-            <>
-              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-600">
-                Near-ATM analysis · visible strike window
+          {!loading &&
+            error && (
+              <div className="rounded border border-red-500/30 bg-red-500/10 p-4 text-red-300">
+                {error}
               </div>
+            )}
 
-              <div className="mb-4 grid gap-3 lg:grid-cols-4">
-                <AnalysisStat
-                  label="Momentum"
-                  value={analysis.momentum}
-                  valueClass={
-                    analysis.momentumTextClass
-                  }
-                  subtext={`RSI ${data.rsi?.toFixed(
-                    1
-                  )} · MACD hist ${data.macd?.histogram?.toFixed(
-                    3
-                  )}`}
-                />
+          {!loading &&
+            !error && (
+              <>
+                {/* NEAR ATM */}
 
-                <AnalysisStat
-                  label="Near-ATM Options Flow"
-                  value={analysis.flowLabel}
-                  valueClass={
-                    analysis.flowClass
-                  }
-                  subtext={`P/C volume ${ratioText(
-                    analysis.pcrVolume
-                  )} · P/C OI ${ratioText(
-                    analysis.pcrOI
-                  )}`}
-                />
+                <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-600">
+                  Near-ATM analysis · visible strike window
+                </div>
 
-                <AnalysisStat
-                  label="Near-ATM Gamma"
-                  value={money(
-                    analysis.gammaLeader?.strike
-                  )}
-                  subtext={
-                    analysis.gammaLeader
-                      ? `${analysis.gammaLeader.type.toUpperCase()} Γ ${analysis.gammaLeader.gamma.toFixed(
-                          4
-                        )}`
-                      : "—"
-                  }
-                />
+                <div className="mb-4 grid gap-3 lg:grid-cols-4">
+                  <AnalysisStat
+                    label="Momentum"
+                    value={
+                      analysis.momentum
+                    }
+                    valueClass={
+                      analysis.momentumTextClass
+                    }
+                    subtext={`RSI ${data.rsi?.toFixed(
+                      1
+                    )} · MACD hist ${data.macd?.histogram?.toFixed(
+                      3
+                    )}`}
+                  />
 
-                <AnalysisStat
-                  label="Theta Hotspot"
-                  value={money(
-                    analysis.thetaLeader?.strike
-                  )}
-                  subtext={
-                    analysis.thetaLeader
-                      ? `${analysis.thetaLeader.type.toUpperCase()} Θ ${analysis.thetaLeader.theta.toFixed(
-                          3
-                        )}`
-                      : "—"
-                  }
-                />
-              </div>
+                  <AnalysisStat
+                    label="Near-ATM Options Flow"
+                    value={
+                      analysis.flowLabel
+                    }
+                    valueClass={
+                      analysis.flowClass
+                    }
+                    subtext={`P/C volume ${ratioText(
+                      analysis.pcrVolume
+                    )} · P/C OI ${ratioText(
+                      analysis.pcrOI
+                    )}`}
+                  />
 
-              <FullChainFlowPanel
-                analysis={fullChainAnalysis}
-                loading={fullChainLoading}
-                error={fullChainError}
-                progress={fullChainProgress}
-                expiration={expiration}
-              />
-
-              <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                <AnalysisStat
-                  label="Lower Reference"
-                  value={money(
-                    analysis.lowerReference
-                  )}
-                />
-
-                <AnalysisStat
-                  label="ATM Strike"
-                  value={money(
-                    atmStrike
-                  )}
-                  valueClass="text-amber-300"
-                />
-
-                <AnalysisStat
-                  label="Upper Reference"
-                  value={money(
-                    analysis.upperReference
-                  )}
-                />
-              </div>
-
-              <HistoricalTechnicalChart
-                ticker={data.ticker}
-                spot={data.price}
-                fullChainAnalysis={
-                  fullChainAnalysis
-                }
-              />
-
-              <StrategyPanel
-                analysis={analysis}
-                expiration={expiration}
-                spot={data.price}
-              />
-
-              <ExpirationComparison
-                data={data}
-                expirations={expirations}
-                selectedExpiration={
-                  expiration
-                }
-                bias={
-                  analysis.strategy.bias
-                }
-                onSelectExpiration={
-                  setExpiration
-                }
-              />
-
-              <div className="my-4 flex flex-wrap gap-4 text-[10px] text-zinc-500">
-                <span>
-                  Expiration{" "}
-                  <b className="text-zinc-200">
-                    {dateLabel(
-                      expiration
+                  <AnalysisStat
+                    label="Near-ATM Gamma"
+                    value={money(
+                      analysis.gammaLeader?.strike
                     )}
-                  </b>
-                </span>
+                    subtext={
+                      analysis.gammaLeader
+                        ? `${analysis.gammaLeader.type.toUpperCase()} Γ ${analysis.gammaLeader.gamma.toFixed(
+                            4
+                          )}`
+                        : "—"
+                    }
+                  />
 
-                <span>
-                  ATM{" "}
-                  <b className="text-amber-300">
-                    {money(
+                  <AnalysisStat
+                    label="Theta Hotspot"
+                    value={money(
+                      analysis.thetaLeader?.strike
+                    )}
+                    subtext={
+                      analysis.thetaLeader
+                        ? `${analysis.thetaLeader.type.toUpperCase()} Θ ${analysis.thetaLeader.theta.toFixed(
+                            3
+                          )}`
+                        : "—"
+                    }
+                  />
+                </div>
+
+                {/* FULL CHAIN */}
+
+                <FullChainFlowPanel
+                  analysis={
+                    fullChainAnalysis
+                  }
+                  loading={
+                    fullChainLoading
+                  }
+                  error={
+                    fullChainError
+                  }
+                  progress={
+                    fullChainProgress
+                  }
+                  expiration={
+                    expiration
+                  }
+                />
+
+                {/* REFERENCES */}
+
+                <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                  <AnalysisStat
+                    label="Lower Reference"
+                    value={money(
+                      analysis.lowerReference
+                    )}
+                  />
+
+                  <AnalysisStat
+                    label="ATM Strike"
+                    value={money(
                       atmStrike
                     )}
-                  </b>
-                </span>
+                    valueClass="text-amber-300"
+                  />
 
-                <span>
-                  Visible call vol{" "}
-                  <b className="text-emerald-300">
-                    {compact(
-                      analysis.callVolume
+                  <AnalysisStat
+                    label="Upper Reference"
+                    value={money(
+                      analysis.upperReference
                     )}
-                  </b>
-                </span>
+                  />
+                </div>
 
-                <span>
-                  Visible put vol{" "}
-                  <b className="text-red-300">
-                    {compact(
-                      analysis.putVolume
-                    )}
-                  </b>
-                </span>
+                {/* TECHNICAL CHART */}
 
-                {fullChainAnalysis && (
+                <HistoricalTechnicalChart
+                  ticker={
+                    data.ticker
+                  }
+                  spot={
+                    data.price
+                  }
+                  fullChainAnalysis={
+                    fullChainAnalysis
+                  }
+                />
+
+                {/* AUTOMATIC STRATEGY */}
+
+                <StrategyPanel
+                  analysis={
+                    analysis
+                  }
+                  expiration={
+                    expiration
+                  }
+                  spot={
+                    data.price
+                  }
+                />
+
+                {/* NEW MANUAL STRATEGY BUILDER */}
+
+                <ManualStrategyBuilder
+                  contracts={
+                    fullChainContracts
+                  }
+                  expiration={
+                    expiration
+                  }
+                  spot={
+                    data.price
+                  }
+                  loading={
+                    fullChainLoading
+                  }
+                />
+
+                {/* EXPIRATION COMPARISON */}
+
+                <ExpirationComparison
+                  data={
+                    data
+                  }
+                  expirations={
+                    expirations
+                  }
+                  selectedExpiration={
+                    expiration
+                  }
+                  bias={
+                    analysis.strategy.bias
+                  }
+                  onSelectExpiration={
+                    setExpiration
+                  }
+                />
+
+                {/* CHAIN HEADER */}
+
+                <div className="my-4 flex flex-wrap gap-4 text-[10px] text-zinc-500">
                   <span>
-                    Full-chain contracts{" "}
-                    <b className="text-cyan-300">
-                      {
-                        fullChainAnalysis.quotedContractCount
-                      }
+                    Expiration{" "}
+                    <b className="text-zinc-200">
+                      {dateLabel(
+                        expiration
+                      )}
                     </b>
                   </span>
-                )}
-              </div>
 
-              {/* OPTION CHAIN */}
+                  <span>
+                    ATM{" "}
+                    <b className="text-amber-300">
+                      {money(
+                        atmStrike
+                      )}
+                    </b>
+                  </span>
 
-              <div className="overflow-x-auto rounded-xl border border-zinc-800">
-                <table className="min-w-[1400px] w-full border-collapse">
-                  <thead>
-                    <tr className="border-b border-zinc-700 bg-zinc-900">
-                      <th
-                        colSpan={9}
-                        className="py-2 text-center text-xs text-emerald-300"
-                      >
-                        CALLS
-                      </th>
+                  <span>
+                    Visible call vol{" "}
+                    <b className="text-emerald-300">
+                      {compact(
+                        analysis.callVolume
+                      )}
+                    </b>
+                  </span>
 
-                      <th className="border-x border-zinc-700 text-amber-300">
-                        STRIKE
-                      </th>
+                  <span>
+                    Visible put vol{" "}
+                    <b className="text-red-300">
+                      {compact(
+                        analysis.putVolume
+                      )}
+                    </b>
+                  </span>
 
-                      <th
-                        colSpan={9}
-                        className="py-2 text-center text-xs text-red-300"
-                      >
-                        PUTS
-                      </th>
-                    </tr>
+                  {fullChainAnalysis && (
+                    <span>
+                      Full-chain contracts{" "}
+                      <b className="text-cyan-300">
+                        {
+                          fullChainAnalysis.quotedContractCount
+                        }
+                      </b>
+                    </span>
+                  )}
+                </div>
 
-                    <tr className="text-[9px] text-zinc-500">
-                      <th>Bid</th>
-                      <th>Ask</th>
-                      <th>Mark</th>
-                      <th>IV</th>
-                      <th>Δ</th>
-                      <th>Γ</th>
-                      <th>Θ</th>
-                      <th>Vega</th>
-                      <th>Vol/OI</th>
+                {/* OPTION CHAIN */}
 
-                      <th className="border-x border-zinc-700">
-                        Strike
-                      </th>
-
-                      <th>Bid</th>
-                      <th>Ask</th>
-                      <th>Mark</th>
-                      <th>IV</th>
-                      <th>Δ</th>
-                      <th>Γ</th>
-                      <th>Θ</th>
-                      <th>Vega</th>
-                      <th>Vol/OI</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {rows.map((row) => {
-                      const call = row.call;
-                      const put = row.put;
-
-                      const atm =
-                        row.strike ===
-                        atmStrike;
-
-                      return (
-                        <tr
-                          key={row.strike}
-                          className={
-                            atm
-                              ? "bg-amber-400/[0.07]"
-                              : "border-t border-zinc-900"
-                          }
+                <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                  <table className="min-w-[1400px] w-full border-collapse">
+                    <thead>
+                      <tr className="border-b border-zinc-700 bg-zinc-900">
+                        <th
+                          colSpan={9}
+                          className="py-2 text-center text-xs text-emerald-300"
                         >
-                          <Cell value={call?.bid?.toFixed(2) ?? "—"} />
-                          <Cell value={call?.ask?.toFixed(2) ?? "—"} />
-                          <Cell value={call?.mark?.toFixed(2) ?? "—"} />
-                          <Cell value={pct(call?.iv)} />
-                          <Cell value={call?.delta?.toFixed(3) ?? "—"} />
-                          <Cell value={call?.gamma?.toFixed(4) ?? "—"} />
-                          <Cell value={call?.theta?.toFixed(3) ?? "—"} />
-                          <Cell value={call?.vega?.toFixed(3) ?? "—"} />
-                          <Cell
-                            value={
-                              call
-                                ? `${compact(
-                                    call.volume
-                                  )}/${compact(
-                                    call.openInterest
-                                  )}`
-                                : "—"
-                            }
-                          />
+                          CALLS
+                        </th>
 
-                          <td
-                            className={`border-x border-zinc-700 px-3 py-2 text-center text-xs font-bold ${
-                              atm
-                                ? "text-amber-300"
-                                : "text-white"
-                            }`}
-                          >
-                            {money(
-                              row.strike
-                            )}
-                          </td>
+                        <th className="border-x border-zinc-700 text-amber-300">
+                          STRIKE
+                        </th>
 
-                          <Cell value={put?.bid?.toFixed(2) ?? "—"} />
-                          <Cell value={put?.ask?.toFixed(2) ?? "—"} />
-                          <Cell value={put?.mark?.toFixed(2) ?? "—"} />
-                          <Cell value={pct(put?.iv)} />
-                          <Cell value={put?.delta?.toFixed(3) ?? "—"} />
-                          <Cell value={put?.gamma?.toFixed(4) ?? "—"} />
-                          <Cell value={put?.theta?.toFixed(3) ?? "—"} />
-                          <Cell value={put?.vega?.toFixed(3) ?? "—"} />
-                          <Cell
-                            value={
-                              put
-                                ? `${compact(
-                                    put.volume
-                                  )}/${compact(
-                                    put.openInterest
-                                  )}`
-                                : "—"
-                            }
-                          />
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+                        <th
+                          colSpan={9}
+                          className="py-2 text-center text-xs text-red-300"
+                        >
+                          PUTS
+                        </th>
+                      </tr>
+
+                      <tr className="text-[9px] text-zinc-500">
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Mark</th>
+                        <th>IV</th>
+                        <th>Δ</th>
+                        <th>Γ</th>
+                        <th>Θ</th>
+                        <th>Vega</th>
+                        <th>Vol/OI</th>
+
+                        <th className="border-x border-zinc-700">
+                          Strike
+                        </th>
+
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Mark</th>
+                        <th>IV</th>
+                        <th>Δ</th>
+                        <th>Γ</th>
+                        <th>Θ</th>
+                        <th>Vega</th>
+                        <th>Vol/OI</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {rows.map(
+                        (row) => {
+                          const call =
+                            row.call;
+
+                          const put =
+                            row.put;
+
+                          const atm =
+                            row.strike ===
+                            atmStrike;
+
+                          return (
+                            <tr
+                              key={
+                                row.strike
+                              }
+                              className={
+                                atm
+                                  ? "bg-amber-400/[0.07]"
+                                  : "border-t border-zinc-900"
+                              }
+                            >
+                              <Cell value={call?.bid?.toFixed(2) ?? "—"} />
+                              <Cell value={call?.ask?.toFixed(2) ?? "—"} />
+                              <Cell value={call?.mark?.toFixed(2) ?? "—"} />
+                              <Cell value={pct(call?.iv)} />
+                              <Cell value={call?.delta?.toFixed(3) ?? "—"} />
+                              <Cell value={call?.gamma?.toFixed(4) ?? "—"} />
+                              <Cell value={call?.theta?.toFixed(3) ?? "—"} />
+                              <Cell value={call?.vega?.toFixed(3) ?? "—"} />
+
+                              <Cell
+                                value={
+                                  call
+                                    ? `${compact(
+                                        call.volume
+                                      )}/${compact(
+                                        call.openInterest
+                                      )}`
+                                    : "—"
+                                }
+                              />
+
+                              <td
+                                className={`border-x border-zinc-700 px-3 py-2 text-center text-xs font-bold ${
+                                  atm
+                                    ? "text-amber-300"
+                                    : "text-white"
+                                }`}
+                              >
+                                {money(
+                                  row.strike
+                                )}
+                              </td>
+
+                              <Cell value={put?.bid?.toFixed(2) ?? "—"} />
+                              <Cell value={put?.ask?.toFixed(2) ?? "—"} />
+                              <Cell value={put?.mark?.toFixed(2) ?? "—"} />
+                              <Cell value={pct(put?.iv)} />
+                              <Cell value={put?.delta?.toFixed(3) ?? "—"} />
+                              <Cell value={put?.gamma?.toFixed(4) ?? "—"} />
+                              <Cell value={put?.theta?.toFixed(3) ?? "—"} />
+                              <Cell value={put?.vega?.toFixed(3) ?? "—"} />
+
+                              <Cell
+                                value={
+                                  put
+                                    ? `${compact(
+                                        put.volume
+                                      )}/${compact(
+                                        put.openInterest
+                                      )}`
+                                    : "—"
+                                }
+                              />
+                            </tr>
+                          );
+                        }
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
         </div>
       </div>
     </div>
