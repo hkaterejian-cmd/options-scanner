@@ -138,6 +138,266 @@ function formatSignedNumber(value, digits = 2) {
   )}`;
 }
 
+function buildPlanStatusConditions(plan, liveData) {
+  if (!plan || !liveData) {
+    return [];
+  }
+
+  const conditions = [];
+
+  const currentSpot =
+    toNumber(
+      liveData.price
+    );
+
+  const breakeven =
+    toNumber(
+      plan.breakeven
+    );
+
+  const invalidation =
+    toNumber(
+      plan.invalidationPrice
+    );
+
+  const savedRsi =
+    toNumber(
+      plan.savedRsi
+    );
+
+  const currentRsi =
+    toNumber(
+      liveData.rsi
+    );
+
+  const savedMacd =
+    toNumber(
+      plan.savedMacdHistogram
+    );
+
+  const currentMacd =
+    toNumber(
+      liveData.macd?.histogram
+    );
+
+  if (
+    invalidation !==
+      null &&
+    currentSpot !==
+      null
+  ) {
+    const crossed =
+      plan.optionType ===
+      "call"
+        ? currentSpot <=
+          invalidation
+        : currentSpot >=
+          invalidation;
+
+    if (crossed) {
+      conditions.push({
+        label:
+          "Invalidation crossed",
+        tone:
+          "red",
+      });
+    }
+  }
+
+  if (
+    breakeven !==
+      null &&
+    currentSpot !==
+      null
+  ) {
+    const reached =
+      plan.optionType ===
+      "call"
+        ? currentSpot >=
+          breakeven
+        : currentSpot <=
+          breakeven;
+
+    if (reached) {
+      conditions.push({
+        label:
+          "Breakeven reached",
+        tone:
+          "green",
+      });
+    }
+  }
+
+  if (
+    savedRsi !==
+      null &&
+    currentRsi !==
+      null
+  ) {
+    if (
+      savedRsi <
+        70 &&
+      currentRsi >=
+        70
+    ) {
+      conditions.push({
+        label:
+          "RSI crossed above 70",
+        tone:
+          "amber",
+      });
+    }
+
+    if (
+      savedRsi >
+        30 &&
+      currentRsi <=
+        30
+    ) {
+      conditions.push({
+        label:
+          "RSI crossed below 30",
+        tone:
+          "amber",
+      });
+    }
+
+    if (
+      savedRsi <
+        50 &&
+      currentRsi >=
+        50
+    ) {
+      conditions.push({
+        label:
+          "RSI crossed above 50",
+        tone:
+          "sky",
+      });
+    }
+
+    if (
+      savedRsi >
+        50 &&
+      currentRsi <=
+        50
+    ) {
+      conditions.push({
+        label:
+          "RSI crossed below 50",
+        tone:
+          "sky",
+      });
+    }
+  }
+
+  if (
+    savedMacd !==
+      null &&
+    currentMacd !==
+      null &&
+    (
+      (
+        savedMacd <
+          0 &&
+        currentMacd >=
+          0
+      ) ||
+      (
+        savedMacd >
+          0 &&
+        currentMacd <=
+          0
+      )
+    )
+  ) {
+    conditions.push({
+      label:
+        `MACD flipped ${
+          currentMacd >=
+          0
+            ? "positive"
+            : "negative"
+        }`,
+      tone:
+        "sky",
+    });
+  }
+
+  return conditions;
+}
+
+function PlanStatusConditions({
+  plan,
+  liveData,
+}) {
+  const conditions =
+    buildPlanStatusConditions(
+      plan,
+      liveData
+    );
+
+  if (!liveData) {
+    return (
+      <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/50 px-2.5 py-2 text-[9px] text-zinc-600">
+        Status conditions unavailable until this ticker is loaded.
+      </div>
+    );
+  }
+
+  if (!conditions.length) {
+    return (
+      <div className="mt-2 rounded border border-emerald-500/15 bg-emerald-500/[0.02] px-2.5 py-2 text-[9px] text-emerald-400">
+        No active price / RSI / MACD condition
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/[0.025] p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[9px] uppercase tracking-widest text-amber-400">
+          Active conditions
+        </div>
+
+        <div className="font-mono text-[9px] text-zinc-500">
+          {conditions.length}
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {conditions.map(
+          (
+            condition,
+            index
+          ) => {
+            const toneClass =
+              condition.tone ===
+              "red"
+                ? "border-red-500/30 bg-red-500/10 text-red-300"
+                : condition.tone ===
+                    "green"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : condition.tone ===
+                      "sky"
+                    ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-300";
+
+            return (
+              <span
+                key={`${condition.label}-${index}`}
+                className={`rounded-full border px-2 py-1 text-[9px] font-mono ${toneClass}`}
+              >
+                {condition.label}
+              </span>
+            );
+          }
+        )}
+      </div>
+    </div>
+  );
+}
+
 function formatCompact(value) {
   const n = toNumber(value);
 
@@ -1551,6 +1811,38 @@ function SavedPlansSummary({
   tickerData,
   onOpenTicker,
 }) {
+  const activeConditionCount =
+    useMemo(
+      () =>
+        plans.reduce(
+          (
+            total,
+            plan
+          ) => {
+            const liveData =
+              tickerData.find(
+                (item) =>
+                  item.ticker ===
+                  normalizeTicker(
+                    plan?.ticker
+                  )
+              );
+
+            return (
+              total +
+              buildPlanStatusConditions(
+                plan,
+                liveData
+              ).length
+            );
+          },
+          0
+        ),
+      [
+        plans,
+        tickerData,
+      ]
+    );
   const groups =
     useMemo(
       () => {
@@ -1659,8 +1951,21 @@ function SavedPlansSummary({
           </div>
         </div>
 
-        <div className="rounded border border-emerald-500/20 bg-emerald-500/[0.04] px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300">
-          Browser saved
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className={`rounded border px-2 py-1 text-[9px] uppercase tracking-widest ${
+              activeConditionCount >
+              0
+                ? "border-amber-500/30 bg-amber-500/[0.05] text-amber-300"
+                : "border-emerald-500/20 bg-emerald-500/[0.04] text-emerald-300"
+            }`}
+          >
+            {activeConditionCount} active condition{activeConditionCount === 1 ? "" : "s"}
+          </div>
+
+          <div className="rounded border border-emerald-500/20 bg-emerald-500/[0.04] px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300">
+            Browser saved
+          </div>
         </div>
       </div>
 
@@ -1978,6 +2283,15 @@ function SavedPlansSummary({
                             </div>
                           </div>
                         </div>
+
+                        <PlanStatusConditions
+                          plan={
+                            plan
+                          }
+                          liveData={
+                            liveData
+                          }
+                        />
 
                         {plan.notes && (
                           <div className="mt-2 line-clamp-2 text-[10px] leading-relaxed text-zinc-500">
