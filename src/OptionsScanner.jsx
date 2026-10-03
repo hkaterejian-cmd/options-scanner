@@ -8723,6 +8723,666 @@ function HistoricalOptionReplayPanel({
   );
 }
 
+
+/*
+  =========================================================
+  OPTION REPLAY RESEARCH LAB
+  =========================================================
+*/
+
+function OptionReplayResearchPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const selected =
+    result?.selected_candidate ??
+    null;
+
+  const baseline =
+    result?.baseline ??
+    null;
+
+  const topCandidates =
+    Array.isArray(
+      result?.top_candidates
+    )
+      ? result.top_candidates
+      : [];
+
+  const coverage =
+    result?.coverage ??
+    {};
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function directionLabel(
+    value
+  ) {
+    if (
+      value ===
+      "bullish_only"
+    ) {
+      return "Bullish only";
+    }
+
+    if (
+      value ===
+      "bearish_only"
+    ) {
+      return "Bearish only";
+    }
+
+    return "Both";
+  }
+
+  function SummaryCard({
+    title,
+    summary,
+    accent,
+  }) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+        <div
+          className={
+            "text-[10px] font-bold " +
+            accent
+          }
+        >
+          {title}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat
+            label="Trades"
+            value={
+              summary?.trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Win Rate"
+            value={pct(
+              summary?.win_rate_pct
+            )}
+          />
+
+          <Stat
+            label="Avg Return"
+            value={pct(
+              summary?.average_return_on_debit_pct
+            )}
+          />
+
+          <Stat
+            label="Avg P/L"
+            value={dollar(
+              summary?.average_pnl_dollars
+            )}
+          />
+
+          <Stat
+            label="Profit Factor"
+            value={ratio(
+              summary?.profit_factor
+            )}
+          />
+
+          <Stat
+            label="Max DD"
+            value={dollar(
+              summary?.max_drawdown_dollars
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-indigo-500/20 bg-indigo-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-indigo-400">
+              Option replay research lab
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Search historical vertical-spread structure parameters with an untouched recent test
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Searches direction, hold period, target DTE, and short-strike distance using expired Robinhood option contracts.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            Option OHLC research · no live orders
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Lookback days
+            </div>
+
+            <input
+              type="number"
+              min="120"
+              max="730"
+              step="30"
+              value={
+                settings.lookbackDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    lookbackDays:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Max signals / hold
+            </div>
+
+            <input
+              type="number"
+              min="8"
+              max="40"
+              step="1"
+              value={
+                settings.maxSignalsPerHold
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    maxSignalsPerHold:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !settings.symbol
+              }
+              className="w-full rounded border border-indigo-400/50 bg-indigo-400/10 px-4 py-2.5 text-[10px] font-bold text-indigo-300 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              {loading
+                ? "BUILDING OPTION RESEARCH..."
+                : connected
+                  ? "RUN OPTION RESEARCH"
+                  : "CONNECT ROBINHOOD"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+          The lab searches 192 combinations: 3 direction modes × 4 hold periods × 4 target-DTE settings × 4 short-strike distances. Option histories are cached within the run so the same contract is not repeatedly fetched.
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Option research error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.search}{" "}
+              {result.methodology?.selection}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.pricing}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat
+                label="Variants"
+                value={
+                  result.search_space?.variant_count ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Unique Option Contracts"
+                value={
+                  coverage.unique_option_contracts ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Replay Rows"
+                value={
+                  coverage.replay_rows ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Skipped Setups / Replays"
+                value={
+                  String(
+                    coverage.setup_skips ??
+                    0
+                  ) +
+                  " / " +
+                  String(
+                    coverage.replay_skips ??
+                    0
+                  )
+                }
+              />
+            </div>
+
+            {selected ? (
+              <div className="mt-4 rounded-xl border border-indigo-500/25 bg-indigo-500/[0.035] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[9px] uppercase tracking-widest text-indigo-400">
+                      Validation-selected option structure
+                    </div>
+
+                    <div className="mt-1 text-base font-bold text-white">
+                      {directionLabel(
+                        selected.parameters?.direction_mode
+                      )} · {selected.parameters?.hold_sessions} sessions · target {selected.parameters?.target_dte} DTE · short {selected.parameters?.short_distance_pct}% OTM
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-500">
+                      Validation score{" "}
+                      {toNumber(
+                        selected.validation_score
+                      ) !==
+                      null
+                        ? Number(
+                            selected.validation_score
+                          ).toFixed(
+                            2
+                          )
+                        : "—"}
+                      . Recent test results were not used to select this structure.
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-indigo-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-indigo-300">
+                    Holdout preserved
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <SummaryCard
+                    title="Training · early 60%"
+                    summary={
+                      selected.train
+                    }
+                    accent="text-zinc-300"
+                  />
+
+                  <SummaryCard
+                    title="Validation · middle 20%"
+                    summary={
+                      selected.validation
+                    }
+                    accent="text-indigo-300"
+                  />
+
+                  <SummaryCard
+                    title="Untouched test · recent 20%"
+                    summary={
+                      selected.test
+                    }
+                    accent="text-amber-300"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-3 text-[10px] text-amber-300">
+                No option-spread candidate had enough training and validation replays to qualify.
+              </div>
+            )}
+
+            {baseline && (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Current option-replay baseline
+                </div>
+
+                <div className="mt-1 text-[10px] text-zinc-400">
+                  Both directions · 5 sessions · target 9 DTE · short 4% OTM
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat
+                    label="Validation Avg"
+                    value={pct(
+                      baseline.validation?.average_return_on_debit_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Validation PF"
+                    value={ratio(
+                      baseline.validation?.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Test Avg"
+                    value={pct(
+                      baseline.test?.average_return_on_debit_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Test P/L"
+                    value={dollar(
+                      baseline.test?.total_pnl_dollars
+                    )}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Top validation candidates
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1350px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-left">
+                        Direction
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Hold
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        DTE
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Short OTM
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Train N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Val PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test N
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test Avg
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test PF
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Test P/L
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {topCandidates.map(
+                      (candidate) => (
+                        <tr
+                          key={
+                            candidate.id
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td className="px-3 py-2 text-left">
+                            {directionLabel(
+                              candidate.parameters?.direction_mode
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.hold_sessions}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.target_dte}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.short_distance_pct}%
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.train?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.validation?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-indigo-300">
+                            {pct(
+                              candidate.validation?.average_return_on_debit_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.validation?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.test?.trades ?? 0}
+                          </td>
+
+                          <td
+                            className={
+                              "px-3 py-2 text-right " +
+                              (
+                                toNumber(
+                                  candidate.test?.average_return_on_debit_pct
+                                ) >
+                                0
+                                  ? "text-emerald-300"
+                                  : "text-red-300"
+                              )
+                            }
+                          >
+                            {pct(
+                              candidate.test?.average_return_on_debit_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.test?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {dollar(
+                              candidate.test?.total_pnl_dollars
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              Do not switch to a different row after seeing its test result. This lab still uses historical option trade-price OHLC rather than synchronized bid/ask quotes, so positive results must later survive execution-slippage stress testing.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -9407,6 +10067,45 @@ export default function OptionsScanner() {
 
       maxSignals:
         12,
+    });
+
+  const [
+    optionResearchOpen,
+    setOptionResearchOpen,
+  ] =
+    useState(false);
+
+  const [
+    optionResearchResult,
+    setOptionResearchResult,
+  ] =
+    useState(null);
+
+  const [
+    optionResearchLoading,
+    setOptionResearchLoading,
+  ] =
+    useState(false);
+
+  const [
+    optionResearchError,
+    setOptionResearchError,
+  ] =
+    useState("");
+
+  const [
+    optionResearchSettings,
+    setOptionResearchSettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        365,
+
+      maxSignalsPerHold:
+        24,
     });
 
   const scanInProgressRef =
@@ -10639,6 +11338,73 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runOptionResearch =
+    useCallback(
+      async () => {
+        setOptionResearchLoading(
+          true
+        );
+
+        setOptionResearchError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/option-replay-research",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      optionResearchSettings.symbol,
+
+                    lookbackDays:
+                      Number(
+                        optionResearchSettings.lookbackDays
+                      ),
+
+                    maxSignalsPerHold:
+                      Number(
+                        optionResearchSettings.maxSignalsPerHold
+                      ),
+                  }),
+              }
+            );
+
+          setOptionResearchResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setOptionResearchError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setOptionResearchLoading(
+            false
+          );
+        }
+      },
+      [
+        optionResearchSettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -11381,6 +12147,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setOptionResearchOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                optionResearchOpen
+                  ? "rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-mono text-indigo-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Option Research
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -12021,6 +12804,37 @@ Do not invent missing values.`
           }
           onRun={
             runOptionReplay
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* OPTION REPLAY RESEARCH */}
+
+      {optionResearchOpen && (
+        <OptionReplayResearchPanel
+          tickers={
+            tickers
+          }
+          settings={
+            optionResearchSettings
+          }
+          setSettings={
+            setOptionResearchSettings
+          }
+          result={
+            optionResearchResult
+          }
+          loading={
+            optionResearchLoading
+          }
+          error={
+            optionResearchError
+          }
+          onRun={
+            runOptionResearch
           }
           connected={
             robinhoodStatus.connected
