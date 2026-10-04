@@ -45,6 +45,18 @@ const FORWARD_VALIDATOR_FILE =
     "forward-validator.json"
   );
 
+let forwardValidatorScheduler =
+  null;
+
+let forwardValidatorTickInProgress =
+  false;
+
+let forwardValidatorLastRunAt =
+  null;
+
+let forwardValidatorLastError =
+  null;
+
 /*
   =========================================================
   READ-ONLY ROBINHOOD TOOLS
@@ -6946,6 +6958,162 @@ function summarizeForwardValidator(
       );
   }
 
+  const averageRoundTripSlippageCents =
+    averageNumbers(
+      closed
+        .map(
+          (trade) => {
+            const entry =
+              finiteNumber(
+                trade.entrySlippageCents
+              );
+
+            const exit =
+              finiteNumber(
+                trade.exitSlippageCents
+              );
+
+            if (
+              entry ===
+                null ||
+              exit ===
+                null
+            ) {
+              return null;
+            }
+
+            return (
+              entry +
+              exit
+            );
+          }
+        )
+        .filter(
+          (value) =>
+            value !==
+            null
+        )
+    );
+
+  const averagePL =
+    averageNumbers(
+      closed.map(
+        (trade) =>
+          finiteNumber(
+            trade.realizedPL
+          )
+      )
+    );
+
+  const readinessChecks = [
+    {
+      id:
+        "closed_trades",
+
+      label:
+        "Closed forward trades",
+
+      passed:
+        closed.length >=
+        20,
+
+      actual:
+        closed.length,
+
+      threshold:
+        ">= 20",
+    },
+
+    {
+      id:
+        "profit_factor",
+
+      label:
+        "Forward profit factor",
+
+      passed:
+        grossLoss >
+        0 &&
+        grossProfit /
+          grossLoss >=
+        1.1,
+
+      actual:
+        grossLoss >
+        0
+          ? grossProfit /
+            grossLoss
+          : null,
+
+      threshold:
+        ">= 1.10x",
+    },
+
+    {
+      id:
+        "average_pl",
+
+      label:
+        "Average forward P/L",
+
+      passed:
+        averagePL !==
+          null &&
+        averagePL >
+          0,
+
+      actual:
+        averagePL,
+
+      threshold:
+        "> $0",
+    },
+
+    {
+      id:
+        "round_trip_slippage",
+
+      label:
+        "Average round-trip slippage",
+
+      passed:
+        averageRoundTripSlippageCents !==
+          null &&
+        averageRoundTripSlippageCents <=
+          17,
+
+      actual:
+        averageRoundTripSlippageCents,
+
+      threshold:
+        "<= 17 cents",
+    },
+
+    {
+      id:
+        "max_drawdown",
+
+      label:
+        "Forward max drawdown",
+
+      passed:
+        maxDrawdown >=
+        -500,
+
+      actual:
+        maxDrawdown,
+
+      threshold:
+        ">= -$500",
+    },
+  ];
+
+  const readinessPassed =
+    readinessChecks.filter(
+      (check) =>
+        check.passed
+    ).length;
+
   return {
     total_trades:
       trades.length,
@@ -7016,6 +7184,29 @@ function summarizeForwardValidator(
             )
         )
       ),
+
+    average_round_trip_slippage_cents:
+      averageRoundTripSlippageCents,
+
+    readiness_gate: {
+      status:
+        readinessPassed ===
+        readinessChecks.length
+          ? "pass"
+          : "collecting",
+
+      passed_count:
+        readinessPassed,
+
+      total_checks:
+        readinessChecks.length,
+
+      checks:
+        readinessChecks,
+
+      note:
+        "This gate is for paper-forward evidence only. Passing it does not authorize live trading.",
+    },
   };
 }
 
@@ -7684,6 +7875,130 @@ async function runForwardValidatorTick(
 
   return writeForwardValidatorState(
     next
+  );
+}
+
+function forwardValidatorSchedulerStatus() {
+  return {
+    backend_scheduler_active:
+      !!forwardValidatorScheduler,
+
+    tick_in_progress:
+      forwardValidatorTickInProgress,
+
+    last_run_at:
+      forwardValidatorLastRunAt,
+
+    last_error:
+      forwardValidatorLastError,
+  };
+}
+
+async function runScheduledForwardValidatorTick() {
+  if (
+    forwardValidatorTickInProgress
+  ) {
+    return;
+  }
+
+  forwardValidatorTickInProgress =
+    true;
+
+  try {
+    const state =
+      await readForwardValidatorState();
+
+    if (
+      !state.settings
+        ?.enabled
+    ) {
+      return;
+    }
+
+    const seconds =
+      Math.max(
+        30,
+        Number(
+          state.settings
+            ?.tickSeconds ??
+          60
+        ) ||
+        60
+      );
+
+    const lastTime =
+      state.lastEvaluatedAt
+        ? Date.parse(
+            state.lastEvaluatedAt
+          )
+        : NaN;
+
+    if (
+      Number.isFinite(
+        lastTime
+      ) &&
+      Date.now() -
+        lastTime <
+        seconds *
+          1000
+    ) {
+      return;
+    }
+
+    await runForwardValidatorTick(
+      state
+    );
+
+    forwardValidatorLastRunAt =
+      new Date().toISOString();
+
+    forwardValidatorLastError =
+      null;
+
+  } catch (error) {
+    forwardValidatorLastError =
+      safeErrorMessage(
+        error
+      );
+
+    console.error(
+      "[Forward validator scheduler]",
+      forwardValidatorLastError
+    );
+
+  } finally {
+    forwardValidatorTickInProgress =
+      false;
+  }
+}
+
+function startForwardValidatorScheduler() {
+  if (
+    forwardValidatorScheduler
+  ) {
+    return;
+  }
+
+  forwardValidatorScheduler =
+    setInterval(
+      () => {
+        runScheduledForwardValidatorTick();
+      },
+      15000
+    );
+
+  if (
+    typeof forwardValidatorScheduler.unref ===
+    "function"
+  ) {
+    forwardValidatorScheduler.unref();
+  }
+
+  setTimeout(
+    () => {
+      runScheduledForwardValidatorTick();
+    },
+    2500
   );
 }
 
@@ -16399,6 +16714,9 @@ app.get(
             state
           ),
 
+        scheduler:
+          forwardValidatorSchedulerStatus(),
+
         paper_only:
           true,
       });
@@ -16453,6 +16771,9 @@ app.put(
             next
           ),
 
+        scheduler:
+          forwardValidatorSchedulerStatus(),
+
         paper_only:
           true,
       });
@@ -16490,6 +16811,9 @@ app.post(
           summarizeForwardValidator(
             next
           ),
+
+        scheduler:
+          forwardValidatorSchedulerStatus(),
 
         paper_only:
           true,
@@ -18426,6 +18750,12 @@ app.listen(
           ? "configured"
           : "not configured"
       }`
+    );
+
+    startForwardValidatorScheduler();
+
+    console.log(
+      "Forward validator scheduler: active"
     );
 
     console.log("");
