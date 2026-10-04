@@ -10374,6 +10374,482 @@ function OptionSpreadWalkForwardPanel({
   );
 }
 
+
+/*
+  =========================================================
+  OPTION EXECUTION STRESS TEST
+  =========================================================
+*/
+
+function OptionExecutionStressPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const scenarios =
+    Array.isArray(
+      result?.scenarios
+    )
+      ? result.scenarios
+      : [];
+
+  const rawSummary =
+    result?.raw_summary ??
+    {};
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-rose-500/20 bg-rose-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-rose-400">
+              Option execution stress test
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Freeze the PLTR baseline, then stress entry/exit execution
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Uses the fixed 5-session / 9-DTE / 4%-OTM option baseline and the same unseen coverage-aware test blocks.
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-500/30 bg-amber-500/[0.05] px-3 py-2 text-[9px] uppercase tracking-widest text-amber-300">
+            No parameter search
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          {[
+            ["lookbackDays", "Lookback days"],
+            ["trainCoverageDates", "Train signal dates"],
+            ["validationCoverageDates", "Validation signal dates"],
+            ["testCoverageDates", "Test signal dates"],
+            ["maxSignalsPerHold", "Max signals / hold"],
+            ["feePerContractPerLeg", "Fee / contract / leg $"],
+          ].map(
+            ([
+              key,
+              label,
+            ]) => (
+              <label
+                key={
+                  key
+                }
+                className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                  {label}
+                </div>
+
+                <input
+                  type="number"
+                  min="0"
+                  step={
+                    key ===
+                    "feePerContractPerLeg"
+                      ? "0.01"
+                      : "1"
+                  }
+                  value={
+                    settings[
+                      key
+                    ]
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setSettings(
+                      (current) => ({
+                        ...current,
+
+                        [key]:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                />
+              </label>
+            )
+          )}
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={
+              onRun
+            }
+            disabled={
+              loading ||
+              !connected ||
+              !settings.symbol
+            }
+            className="rounded border border-rose-400/50 bg-rose-400/10 px-4 py-2.5 text-[10px] font-bold text-rose-300 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            {loading
+              ? "RUNNING EXECUTION STRESS..."
+              : connected
+                ? "RUN EXECUTION STRESS"
+                : "CONNECT ROBINHOOD"}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Execution stress error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.sample}{" "}
+              {result.methodology?.friction}{" "}
+              {result.methodology?.fees}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.caution}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              <Stat
+                label="OOS Trades"
+                value={
+                  result.oos_trade_count ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Raw Win Rate"
+                value={pct(
+                  rawSummary.win_rate_pct
+                )}
+              />
+
+              <Stat
+                label="Raw Avg Return"
+                value={pct(
+                  rawSummary.average_return_on_debit_pct
+                )}
+              />
+
+              <Stat
+                label="Raw P/L"
+                value={dollar(
+                  rawSummary.total_pnl_dollars
+                )}
+              />
+
+              <Stat
+                label="Raw Profit Factor"
+                value={ratio(
+                  rawSummary.profit_factor
+                )}
+              />
+
+              <Stat
+                label="Raw Max DD"
+                value={dollar(
+                  rawSummary.max_drawdown_dollars
+                )}
+              />
+
+              <Stat
+                label="Approx Break-Even Friction"
+                value={
+                  toNumber(
+                    result.approximate_break_even_round_trip_friction_cents
+                  ) !==
+                  null
+                    ? Number(
+                        result.approximate_break_even_round_trip_friction_cents
+                      ).toFixed(
+                        1
+                      ) +
+                      "¢ round trip"
+                    : "—"
+                }
+              />
+
+              <Stat
+                label="Largest Positive Stress Tier"
+                value={
+                  toNumber(
+                    result.largest_positive_stress_tier_cents
+                  ) !==
+                  null
+                    ? Number(
+                        result.largest_positive_stress_tier_cents
+                      ).toFixed(
+                        0
+                      ) +
+                      "¢"
+                    : "None"
+                }
+              />
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Execution-friction survival table
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1150px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-right">
+                        Round-Trip Friction
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Win Rate
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Avg Return
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Avg P/L
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Total P/L
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Profit Factor
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Max DD
+                      </th>
+
+                      <th className="px-3 py-2 text-right">
+                        Survives
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {scenarios.map(
+                      (scenario) => {
+                        const stress =
+                          scenario.summary ??
+                          {};
+
+                        const survives =
+                          (
+                            stress.average_pnl_dollars ??
+                            0
+                          ) >
+                            0 &&
+                          (
+                            stress.profit_factor ??
+                            0
+                          ) >
+                            1;
+
+                        return (
+                          <tr
+                            key={
+                              scenario.round_trip_friction_cents
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="px-3 py-2 text-right text-rose-300">
+                              {Number(
+                                scenario.round_trip_friction_cents
+                              ).toFixed(
+                                0
+                              )}¢
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                stress.win_rate_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                stress.average_return_on_debit_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {dollar(
+                                stress.average_pnl_dollars
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {dollar(
+                                stress.total_pnl_dollars
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {ratio(
+                                stress.profit_factor
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-red-300">
+                              {dollar(
+                                stress.max_drawdown_dollars
+                              )}
+                            </td>
+
+                            <td
+                              className={
+                                survives
+                                  ? "px-3 py-2 text-right font-bold text-emerald-300"
+                                  : "px-3 py-2 text-right font-bold text-red-300"
+                              }
+                            >
+                              {survives
+                                ? "YES"
+                                : "NO"}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              Friction tiers are total round-trip spread friction. A 10¢ tier means 5¢ worse on entry and 5¢ worse on exit. This test intentionally freezes the option structure so we measure execution sensitivity rather than optimize another historical parameter.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -11145,6 +11621,57 @@ export default function OptionsScanner() {
 
       maxSignalsPerHold:
         60,
+    });
+
+  const [
+    executionStressOpen,
+    setExecutionStressOpen,
+  ] =
+    useState(false);
+
+  const [
+    executionStressResult,
+    setExecutionStressResult,
+  ] =
+    useState(null);
+
+  const [
+    executionStressLoading,
+    setExecutionStressLoading,
+  ] =
+    useState(false);
+
+  const [
+    executionStressError,
+    setExecutionStressError,
+  ] =
+    useState("");
+
+  const [
+    executionStressSettings,
+    setExecutionStressSettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        730,
+
+      trainCoverageDates:
+        60,
+
+      validationCoverageDates:
+        24,
+
+      testCoverageDates:
+        8,
+
+      maxSignalsPerHold:
+        60,
+
+      feePerContractPerLeg:
+        0,
     });
 
   const scanInProgressRef =
@@ -12526,6 +13053,102 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runExecutionStress =
+    useCallback(
+      async () => {
+        setExecutionStressLoading(
+          true
+        );
+
+        setExecutionStressError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/option-execution-stress",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      executionStressSettings.symbol,
+
+                    lookbackDays:
+                      Number(
+                        executionStressSettings.lookbackDays
+                      ),
+
+                    trainCoverageDates:
+                      Number(
+                        executionStressSettings.trainCoverageDates
+                      ),
+
+                    validationCoverageDates:
+                      Number(
+                        executionStressSettings.validationCoverageDates
+                      ),
+
+                    testCoverageDates:
+                      Number(
+                        executionStressSettings.testCoverageDates
+                      ),
+
+                    maxSignalsPerHold:
+                      Number(
+                        executionStressSettings.maxSignalsPerHold
+                      ),
+
+                    feePerContractPerLeg:
+                      Number(
+                        executionStressSettings.feePerContractPerLeg
+                      ) ||
+                      0,
+
+                    frictionTiers: [
+                      0,
+                      5,
+                      10,
+                      25,
+                      50,
+                    ],
+                  }),
+              }
+            );
+
+          setExecutionStressResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setExecutionStressError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setExecutionStressLoading(
+            false
+          );
+        }
+      },
+      [
+        executionStressSettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -13302,6 +13925,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setExecutionStressOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                executionStressOpen
+                  ? "rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-mono text-rose-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Execution Stress
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -14004,6 +14644,37 @@ Do not invent missing values.`
           }
           onRun={
             runOptionWalkForward
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* OPTION EXECUTION STRESS */}
+
+      {executionStressOpen && (
+        <OptionExecutionStressPanel
+          tickers={
+            tickers
+          }
+          settings={
+            executionStressSettings
+          }
+          setSettings={
+            setExecutionStressSettings
+          }
+          result={
+            executionStressResult
+          }
+          loading={
+            executionStressLoading
+          }
+          error={
+            executionStressError
+          }
+          onRun={
+            runExecutionStress
           }
           connected={
             robinhoodStatus.connected
