@@ -12418,6 +12418,921 @@ function SingleLegPracticePanel({
   );
 }
 
+
+/*
+  =========================================================
+  SINGLE-LEG HISTORICAL RESEARCH
+  =========================================================
+*/
+
+function SingleLegHistoricalResearchPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const selected =
+    result?.selected_candidate ??
+    null;
+
+  const baseline =
+    result?.baseline ??
+    null;
+
+  const topCandidates =
+    Array.isArray(
+      result?.top_candidates
+    )
+      ? result.top_candidates
+      : [];
+
+  const dataset =
+    Array.isArray(
+      result?.selected_test_dataset
+    )
+      ? result.selected_test_dataset
+      : [];
+
+  const coverage =
+    result?.coverage ??
+    {};
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function targetLabel(
+    value
+  ) {
+    return value ===
+      null ||
+      value ===
+        undefined
+      ? "None"
+      : "+" +
+        value +
+        "%";
+  }
+
+  function stopLabel(
+    value
+  ) {
+    return value ===
+      null ||
+      value ===
+        undefined
+      ? "None"
+      : "-" +
+        value +
+        "%";
+  }
+
+  function downloadDataset() {
+    if (!dataset.length) {
+      return;
+    }
+
+    const headers =
+      Object.keys(
+        dataset[0]
+      );
+
+    const esc =
+      (value) => {
+        if (
+          value ===
+            null ||
+          value ===
+            undefined
+        ) {
+          return "";
+        }
+
+        const text =
+          String(
+            value
+          );
+
+        if (
+          text.includes(",") ||
+          text.includes('"') ||
+          text.includes("\n")
+        ) {
+          return (
+            '"' +
+            text.replaceAll(
+              '"',
+              '""'
+            ) +
+            '"'
+          );
+        }
+
+        return text;
+      };
+
+    const csv = [
+      headers.join(","),
+      ...dataset.map(
+        (row) =>
+          headers
+            .map(
+              (header) =>
+                esc(
+                  row[
+                    header
+                  ]
+                )
+            )
+            .join(",")
+      ),
+    ].join("\n");
+
+    const blob =
+      new Blob(
+        [csv],
+        {
+          type:
+            "text/csv;charset=utf-8",
+        }
+      );
+
+    const url =
+      URL.createObjectURL(
+        blob
+      );
+
+    const link =
+      document.createElement(
+        "a"
+      );
+
+    link.href =
+      url;
+
+    link.download =
+      "single-leg-" +
+      (
+        result?.option_type ??
+        settings.optionType
+      ) +
+      "-research-test.csv";
+
+    document.body.appendChild(
+      link
+    );
+
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      url
+    );
+  }
+
+  function SummaryCard({
+    title,
+    summary,
+    accent,
+  }) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+        <div
+          className={
+            "text-[10px] font-bold " +
+            accent
+          }
+        >
+          {title}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat
+            label="Trades"
+            value={
+              summary?.trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Win Rate"
+            value={pct(
+              summary?.win_rate_pct
+            )}
+          />
+
+          <Stat
+            label="Avg Return"
+            value={pct(
+              summary?.average_return_pct
+            )}
+          />
+
+          <Stat
+            label="Median"
+            value={pct(
+              summary?.median_return_pct
+            )}
+          />
+
+          <Stat
+            label="Profit Factor"
+            value={ratio(
+              summary?.profit_factor
+            )}
+          />
+
+          <Stat
+            label="Max DD"
+            value={pct(
+              summary?.max_drawdown_pct
+            )}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-fuchsia-400">
+              Single-leg historical research
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Refine historical call and put entries and exits
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Uses expired Robinhood option contracts and historical daily option OHLC. The recent test segment is not used to choose the candidate.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              downloadDataset
+            }
+            disabled={
+              !dataset.length
+            }
+            className="rounded border border-cyan-400/40 px-3 py-2 text-[9px] uppercase tracking-widest text-cyan-300 disabled:opacity-30"
+          >
+            Download Test CSV
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setSettings(
+                (current) => ({
+                  ...current,
+
+                  optionType:
+                    "call",
+                })
+              )
+            }
+            className={
+              settings.optionType ===
+              "call"
+                ? "rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-300"
+                : "rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-xs text-zinc-400"
+            }
+          >
+            CALL RESEARCH
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setSettings(
+                (current) => ({
+                  ...current,
+
+                  optionType:
+                    "put",
+                })
+              )
+            }
+            className={
+              settings.optionType ===
+              "put"
+                ? "rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-300"
+                : "rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-xs text-zinc-400"
+            }
+          >
+            PUT RESEARCH
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Lookback Days
+            </div>
+
+            <input
+              type="number"
+              min="180"
+              max="730"
+              step="30"
+              value={
+                settings.lookbackDays
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    lookbackDays:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Max Signals / Profile
+            </div>
+
+            <input
+              type="number"
+              min="20"
+              max="100"
+              step="5"
+              value={
+                settings.maxSignalsPerProfile
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    maxSignalsPerProfile:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={
+                onRun
+              }
+              disabled={
+                loading ||
+                !connected ||
+                !settings.symbol
+              }
+              className={
+                settings.optionType ===
+                "call"
+                  ? "w-full rounded border border-emerald-400/50 bg-emerald-400/10 px-4 py-2.5 text-[10px] font-bold text-emerald-300 disabled:opacity-30"
+                  : "w-full rounded border border-red-400/50 bg-red-400/10 px-4 py-2.5 text-[10px] font-bold text-red-300 disabled:opacity-30"
+              }
+            >
+              {loading
+                ? "RUNNING SINGLE-LEG RESEARCH..."
+                : "RUN " +
+                  String(
+                    settings.optionType
+                  ).toUpperCase() +
+                  " RESEARCH"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+          Search space: 7/9/14/21/30 DTE · about 2% ITM / ATM / 2% OTM · 2-of-3 or 3-of-3 momentum · multiple RSI thresholds · 1/3/5/7/10-session max holds · profit targets from +20% to +100% or none · stops from -20% to -50% or none.
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Single-leg research error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.entry}{" "}
+              {result.methodology?.contract}{" "}
+              {result.methodology?.exit}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.caution}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              <Stat
+                label="Replayable Signal Dates"
+                value={
+                  coverage.replayable_signal_dates ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Base Entry Rows"
+                value={
+                  coverage.base_rows ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Unique Contracts"
+                value={
+                  coverage.unique_option_contracts ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Setup Skips"
+                value={
+                  coverage.setup_skips ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Replay Skips"
+                value={
+                  coverage.replay_skips ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Train Dates"
+                value={
+                  result.split?.train_signal_dates ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Validation Dates"
+                value={
+                  result.split?.validation_signal_dates ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Test Dates"
+                value={
+                  result.split?.test_signal_dates ??
+                  0
+                }
+              />
+            </div>
+
+            {selected ? (
+              <div
+                className={
+                  result.option_type ===
+                  "call"
+                    ? "mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4"
+                    : "mt-4 rounded-xl border border-red-500/25 bg-red-500/[0.03] p-4"
+                }
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div
+                      className={
+                        result.option_type ===
+                        "call"
+                          ? "text-[9px] uppercase tracking-widest text-emerald-400"
+                          : "text-[9px] uppercase tracking-widest text-red-400"
+                      }
+                    >
+                      Validation-selected {String(
+                        result.option_type
+                      ).toUpperCase()} setup
+                    </div>
+
+                    <div className="mt-1 text-base font-bold text-white">
+                      {selected.parameters?.target_dte} DTE · {selected.parameters?.moneyness_label} · {selected.parameters?.required_signals}/3 signals · RSI {selected.parameters?.rsi_threshold} · max {selected.parameters?.max_hold_sessions} sessions · target {targetLabel(
+                        selected.parameters?.profit_target_pct
+                      )} · stop {stopLabel(
+                        selected.parameters?.stop_loss_pct
+                      )}
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-500">
+                      Validation score{" "}
+                      {toNumber(
+                        selected.validation_score
+                      ) !==
+                      null
+                        ? Number(
+                            selected.validation_score
+                          ).toFixed(
+                            2
+                          )
+                        : "—"}
+                      . The test segment was not used to select this candidate.
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-fuchsia-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-fuchsia-300">
+                    Holdout preserved
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <SummaryCard
+                    title="Training · early 60%"
+                    summary={
+                      selected.train
+                    }
+                    accent="text-zinc-300"
+                  />
+
+                  <SummaryCard
+                    title="Validation · middle 20%"
+                    summary={
+                      selected.validation
+                    }
+                    accent="text-fuchsia-300"
+                  />
+
+                  <SummaryCard
+                    title="Untouched test · recent 20%"
+                    summary={
+                      selected.test
+                    }
+                    accent="text-amber-300"
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat
+                    label="Test Avg Winner"
+                    value={pct(
+                      selected.test?.average_winner_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Test Avg Loser"
+                    value={pct(
+                      selected.test?.average_loser_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Test MFE / MAE"
+                    value={
+                      pct(
+                        selected.test?.average_mfe_pct
+                      ) +
+                      " / " +
+                      pct(
+                        selected.test?.average_mae_pct
+                      )
+                    }
+                  />
+
+                  <Stat
+                    label="Test 50% Gain / Loss Rate"
+                    value={
+                      pct(
+                        selected.test?.gain_50_rate_pct
+                      ) +
+                      " / " +
+                      pct(
+                        selected.test?.loss_50_rate_pct
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3 text-[10px] text-amber-300">
+                No candidate met the minimum training and validation requirements for this run.
+              </div>
+            )}
+
+            {baseline && (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Current single-leg practice baseline
+                </div>
+
+                <div className="mt-1 text-[10px] text-zinc-400">
+                  {String(
+                    result.option_type
+                  ).toUpperCase()} · 9 DTE · ATM · 2/3 signals · RSI {baseline.parameters?.rsi_threshold} · 5-session hold · no target · no stop
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat
+                    label="Validation Avg"
+                    value={pct(
+                      baseline.validation?.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Validation PF"
+                    value={ratio(
+                      baseline.validation?.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Test Avg"
+                    value={pct(
+                      baseline.test?.average_return_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Test PF"
+                    value={ratio(
+                      baseline.test?.profit_factor
+                    )}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Top validation candidates
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1700px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-right">DTE</th>
+                      <th className="px-3 py-2 text-left">Strike</th>
+                      <th className="px-3 py-2 text-right">Signals</th>
+                      <th className="px-3 py-2 text-right">RSI</th>
+                      <th className="px-3 py-2 text-right">Hold</th>
+                      <th className="px-3 py-2 text-right">Target</th>
+                      <th className="px-3 py-2 text-right">Stop</th>
+                      <th className="px-3 py-2 text-right">Train N</th>
+                      <th className="px-3 py-2 text-right">Val N</th>
+                      <th className="px-3 py-2 text-right">Val Avg</th>
+                      <th className="px-3 py-2 text-right">Val PF</th>
+                      <th className="px-3 py-2 text-right">Test N</th>
+                      <th className="px-3 py-2 text-right">Test Avg</th>
+                      <th className="px-3 py-2 text-right">Test Median</th>
+                      <th className="px-3 py-2 text-right">Test PF</th>
+                      <th className="px-3 py-2 text-right">Test DD</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {topCandidates.map(
+                      (candidate) => (
+                        <tr
+                          key={
+                            candidate.id
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.target_dte}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {candidate.parameters?.moneyness_label}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.required_signals}/3
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.rsi_threshold}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.parameters?.max_hold_sessions}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {targetLabel(
+                              candidate.parameters?.profit_target_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {stopLabel(
+                              candidate.parameters?.stop_loss_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.train?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.validation?.trades ?? 0}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-fuchsia-300">
+                            {pct(
+                              candidate.validation?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.validation?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {candidate.test?.trades ?? 0}
+                          </td>
+
+                          <td
+                            className={
+                              "px-3 py-2 text-right " +
+                              (
+                                toNumber(
+                                  candidate.test?.average_return_pct
+                                ) >
+                                0
+                                  ? "text-emerald-300"
+                                  : "text-red-300"
+                              )
+                            }
+                          >
+                            {pct(
+                              candidate.test?.average_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {pct(
+                              candidate.test?.median_return_pct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {ratio(
+                              candidate.test?.profit_factor
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-red-300">
+                            {pct(
+                              candidate.test?.max_drawdown_pct
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              Do not switch candidates after inspecting their untouched test results. This is a research lab, not a live-trading recommendation. The next stage is walk-forward testing of single-leg rules that survive this screen.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -13292,6 +14207,48 @@ export default function OptionsScanner() {
     setSingleLegPracticeError,
   ] =
     useState("");
+
+  const [
+    singleLegResearchOpen,
+    setSingleLegResearchOpen,
+  ] =
+    useState(false);
+
+  const [
+    singleLegResearchResult,
+    setSingleLegResearchResult,
+  ] =
+    useState(null);
+
+  const [
+    singleLegResearchLoading,
+    setSingleLegResearchLoading,
+  ] =
+    useState(false);
+
+  const [
+    singleLegResearchError,
+    setSingleLegResearchError,
+  ] =
+    useState("");
+
+  const [
+    singleLegResearchSettings,
+    setSingleLegResearchSettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      optionType:
+        "call",
+
+      lookbackDays:
+        730,
+
+      maxSignalsPerProfile:
+        80,
+    });
 
   const scanInProgressRef =
     useRef(false);
@@ -15196,6 +16153,76 @@ export default function OptionsScanner() {
     refreshSingleLegPractice,
   ]);
 
+  const runSingleLegResearch =
+    useCallback(
+      async () => {
+        setSingleLegResearchLoading(
+          true
+        );
+
+        setSingleLegResearchError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/single-leg-research",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      singleLegResearchSettings.symbol,
+
+                    optionType:
+                      singleLegResearchSettings.optionType,
+
+                    lookbackDays:
+                      Number(
+                        singleLegResearchSettings.lookbackDays
+                      ),
+
+                    maxSignalsPerProfile:
+                      Number(
+                        singleLegResearchSettings.maxSignalsPerProfile
+                      ),
+                  }),
+              }
+            );
+
+          setSingleLegResearchResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setSingleLegResearchError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setSingleLegResearchLoading(
+            false
+          );
+        }
+      },
+      [
+        singleLegResearchSettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -16023,6 +17050,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setSingleLegResearchOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                singleLegResearchOpen
+                  ? "rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-mono text-fuchsia-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Single-Leg Research
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -16818,6 +17862,37 @@ Do not invent missing values.`
           }
           onSettings={
             updateSingleLegPracticeSettings
+          }
+        />
+      )}
+
+      {/* SINGLE-LEG HISTORICAL RESEARCH */}
+
+      {singleLegResearchOpen && (
+        <SingleLegHistoricalResearchPanel
+          tickers={
+            tickers
+          }
+          settings={
+            singleLegResearchSettings
+          }
+          setSettings={
+            setSingleLegResearchSettings
+          }
+          result={
+            singleLegResearchResult
+          }
+          loading={
+            singleLegResearchLoading
+          }
+          error={
+            singleLegResearchError
+          }
+          onRun={
+            runSingleLegResearch
+          }
+          connected={
+            robinhoodStatus.connected
           }
         />
       )}
