@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import TickerDetailModal from "./TickerDetailModal";
+import SingleLegResearch from "./SingleLegResearch";
 
 const PROXY_BASE = "http://127.0.0.1:3001";
 
@@ -12512,6 +12513,7 @@ function filterCards(
 */
 
 export default function OptionsScanner() {
+  const [singleLegResearchOpen, setSingleLegResearchOpen] = useState(false);
   const [
     tickers,
     setTickers,
@@ -16021,6 +16023,7 @@ Do not invent missing values.`
             >
               Calls / Puts Practice
             </button>
+            <button type="button" onClick={() => setSingleLegResearchOpen(value => !value)} className="rounded-lg border border-violet-500/40 bg-zinc-900 px-3 py-2 text-xs font-mono text-violet-300">Single-Leg Research</button>
 
             <button
               onClick={() => {
@@ -16787,6 +16790,8 @@ Do not invent missing values.`
           }
         />
       )}
+
+      <div hidden={!singleLegResearchOpen}><SingleLegResearch proxyBase={PROXY_BASE} connected={robinhoodStatus.connected} /></div>
 
       {/* SINGLE-LEG CALL / PUT PRACTICE */}
 

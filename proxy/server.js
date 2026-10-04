@@ -20591,6 +20591,17 @@ function escapeHtml(value) {
   =========================================================
 */
 
+require("./singleLegResearch").registerSingleLegResearch(app, {
+  normalizeTicker,
+  call: callRobinhoodTool,
+  unwrap: unwrapRobinhoodToolResult,
+  extractStock: extractBacktestBars,
+  nextFriday: nextFridayOnOrAfter,
+  loadInstruments: loadExpiredOptionInstruments,
+  extractOptions: extractOptionHistoricalResults,
+  normalizeOptions: normalizeOptionBars,
+});
+
 app.listen(
   PORT,
   "0.0.0.0",
