@@ -11621,6 +11621,803 @@ function ForwardPaperValidatorPanel({
   );
 }
 
+
+/*
+  =========================================================
+  SINGLE-LEG CALL / PUT PRACTICE
+  =========================================================
+*/
+
+function SingleLegPracticePanel({
+  tickers,
+  status,
+  loading,
+  error,
+  connected,
+  onRefresh,
+  onOpen,
+  onClose,
+  onSettings,
+}) {
+  const settings =
+    status?.settings ??
+    {};
+
+  const summary =
+    status?.summary ??
+    {};
+
+  const scheduler =
+    status?.scheduler ??
+    {};
+
+  const trades =
+    Array.isArray(
+      status?.trades
+    )
+      ? status.trades
+      : [];
+
+  const openTrades =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closedTrades =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-violet-500/20 bg-violet-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-violet-400">
+              Single-leg practice
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Practice buying calls and puts with live Robinhood quotes
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Paper-only long options. No short leg, no brokerage order, and no real money is used.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              onRefresh
+            }
+            disabled={
+              loading ||
+              !connected
+            }
+            className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-sky-300 disabled:opacity-30"
+          >
+            {loading
+              ? "Refreshing..."
+              : "Refresh Quotes"}
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+          The practice engine chooses the active option strike nearest the current stock price at approximately the selected DTE. Entry and exit fills use the selected paper fill model. Open positions are marked by the backend scheduler and automatically close after the selected number of completed trading sessions unless you close them manually first.
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Single-leg practice error: {error}
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol ??
+                "PLTR"
+              }
+              onChange={(
+                event
+              ) =>
+                onSettings({
+                  symbol:
+                    event.target.value,
+                })
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Target DTE
+            </div>
+
+            <select
+              value={
+                settings.targetDte ??
+                9
+              }
+              onChange={(
+                event
+              ) =>
+                onSettings({
+                  targetDte:
+                    Number(
+                      event.target.value
+                    ),
+                })
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {[7, 9, 14, 21, 30].map(
+                (value) => (
+                  <option
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
+                  >
+                    {value} DTE
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Hold Sessions
+            </div>
+
+            <select
+              value={
+                settings.holdSessions ??
+                5
+              }
+              onChange={(
+                event
+              ) =>
+                onSettings({
+                  holdSessions:
+                    Number(
+                      event.target.value
+                    ),
+                })
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {[1, 3, 5, 10].map(
+                (value) => (
+                  <option
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
+                  >
+                    {value}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Quantity
+            </div>
+
+            <select
+              value={
+                settings.quantity ??
+                1
+              }
+              onChange={(
+                event
+              ) =>
+                onSettings({
+                  quantity:
+                    Number(
+                      event.target.value
+                    ),
+                })
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {[1, 2, 3, 5].map(
+                (value) => (
+                  <option
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
+                  >
+                    {value}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Fill Model
+            </div>
+
+            <select
+              value={
+                settings.fillModel ??
+                "quarter_spread"
+              }
+              onChange={(
+                event
+              ) =>
+                onSettings({
+                  fillModel:
+                    event.target.value,
+                })
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              <option value="midpoint">
+                Midpoint
+              </option>
+
+              <option value="quarter_spread">
+                25% toward bid/ask
+              </option>
+
+              <option value="conservative">
+                Ask in / bid out
+              </option>
+            </select>
+          </label>
+
+          <div className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Backend Tracker
+            </div>
+
+            <div
+              className={
+                scheduler.backend_scheduler_active
+                  ? "mt-2 font-mono text-sm font-bold text-emerald-300"
+                  : "mt-2 font-mono text-sm font-bold text-red-300"
+              }
+            >
+              {scheduler.backend_scheduler_active
+                ? "ACTIVE"
+                : "OFF"}
+            </div>
+
+            <div className="mt-1 text-[9px] text-zinc-600">
+              Last run:{" "}
+              {scheduler.last_run_at
+                ? new Date(
+                    scheduler.last_run_at
+                  ).toLocaleTimeString()
+                : "—"}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() =>
+              onOpen(
+                "call"
+              )
+            }
+            disabled={
+              loading ||
+              !connected
+            }
+            className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-4 text-left disabled:opacity-30"
+          >
+            <div className="text-[9px] uppercase tracking-widest text-emerald-400">
+              Bullish practice
+            </div>
+
+            <div className="mt-1 text-base font-bold text-white">
+              BUY PAPER CALL
+            </div>
+
+            <div className="mt-1 text-[9px] text-zinc-500">
+              Buys the near-ATM long call only. Maximum paper loss is the premium paid.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              onOpen(
+                "put"
+              )
+            }
+            disabled={
+              loading ||
+              !connected
+            }
+            className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-4 text-left disabled:opacity-30"
+          >
+            <div className="text-[9px] uppercase tracking-widest text-red-400">
+              Bearish practice
+            </div>
+
+            <div className="mt-1 text-base font-bold text-white">
+              BUY PAPER PUT
+            </div>
+
+            <div className="mt-1 text-[9px] text-zinc-500">
+              Buys the near-ATM long put only. Maximum paper loss is the premium paid.
+            </div>
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <Stat
+            label="Total Trades"
+            value={
+              summary.total_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Open"
+            value={
+              summary.open_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Closed"
+            value={
+              summary.closed_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Win Rate"
+            value={pct(
+              summary.win_rate_pct
+            )}
+          />
+
+          <Stat
+            label="Average Return"
+            value={pct(
+              summary.average_return_pct
+            )}
+          />
+
+          <Stat
+            label="Total P/L"
+            value={dollar(
+              summary.total_pl
+            )}
+          />
+
+          <Stat
+            label="Profit Factor"
+            value={ratio(
+              summary.profit_factor
+            )}
+          />
+
+          <Stat
+            label="Max DD"
+            value={dollar(
+              summary.max_drawdown
+            )}
+          />
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Open calls / puts
+          </div>
+
+          {openTrades.length >
+          0 ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {openTrades.map(
+                (trade) => (
+                  <div
+                    key={
+                      trade.id
+                    }
+                    className={
+                      trade.optionType ===
+                      "call"
+                        ? "rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-3"
+                        : "rounded-xl border border-red-500/20 bg-red-500/[0.02] p-3"
+                    }
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="font-mono text-sm font-bold text-white">
+                          {trade.symbol} {formatMoney(
+                            trade.strike
+                          )} {String(
+                            trade.optionType
+                          ).toUpperCase()}
+                        </div>
+
+                        <div className="mt-1 text-[9px] text-zinc-500">
+                          {trade.quantity} contract{trade.quantity === 1 ? "" : "s"} · Exp {trade.expiration} · Entry DTE {trade.entryDte}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onClose(
+                            trade.id
+                          )
+                        }
+                        disabled={
+                          loading ||
+                          !connected
+                        }
+                        className="rounded border border-amber-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300 disabled:opacity-30"
+                      >
+                        Close Paper Position
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Stat
+                        label="Entry Fill"
+                        value={formatMoney(
+                          trade.entryFill
+                        )}
+                      />
+
+                      <Stat
+                        label="Current Mid"
+                        value={formatMoney(
+                          trade.currentMidpoint
+                        )}
+                      />
+
+                      <Stat
+                        label="Current P/L"
+                        value={dollar(
+                          trade.currentPL
+                        )}
+                      />
+
+                      <Stat
+                        label="MFE / MAE"
+                        value={
+                          dollar(
+                            trade.maxFavorablePL
+                          ) +
+                          " / " +
+                          dollar(
+                            trade.maxAdversePL
+                          )
+                        }
+                      />
+
+                      <Stat
+                        label="Delta"
+                        value={formatSignedNumber(
+                          trade.entryDelta,
+                          3
+                        )}
+                      />
+
+                      <Stat
+                        label="Theta"
+                        value={formatSignedNumber(
+                          trade.entryTheta,
+                          3
+                        )}
+                      />
+
+                      <Stat
+                        label="IV"
+                        value={formatPercent(
+                          trade.entryIv
+                        )}
+                      />
+
+                      <Stat
+                        label="Volume / OI"
+                        value={
+                          formatCompact(
+                            trade.entryVolume
+                          ) +
+                          " / " +
+                          formatCompact(
+                            trade.entryOpenInterest
+                          )
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-2 text-[9px] text-zinc-600">
+                      Entry midpoint {formatMoney(
+                        trade.entryMidpoint
+                      )} · simulated slippage {toNumber(
+                        trade.entrySlippageCents
+                      ) !==
+                      null
+                        ? Number(
+                            trade.entrySlippageCents
+                          ).toFixed(
+                            1
+                          ) +
+                          "¢"
+                        : "—"}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+              No open single-leg paper position. Use Buy Paper Call or Buy Paper Put above.
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Closed call / put journal
+          </div>
+
+          {closedTrades.length >
+          0 ? (
+            <div className="overflow-x-auto rounded-lg border border-zinc-800">
+              <table className="min-w-[1150px] w-full text-[9px] font-mono">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-600">
+                    <th className="px-3 py-2 text-left">
+                      Contract
+                    </th>
+
+                    <th className="px-3 py-2 text-left">
+                      Entry
+                    </th>
+
+                    <th className="px-3 py-2 text-left">
+                      Exit
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Entry Fill
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Exit Fill
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      P/L
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Return
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      MFE
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      MAE
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {[...closedTrades]
+                    .reverse()
+                    .map(
+                      (trade) => (
+                        <tr
+                          key={
+                            trade.id
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td
+                            className={
+                              trade.optionType ===
+                              "call"
+                                ? "px-3 py-2 text-left text-emerald-300"
+                                : "px-3 py-2 text-left text-red-300"
+                            }
+                          >
+                            {trade.symbol} {formatMoney(
+                              trade.strike
+                            )} {String(
+                              trade.optionType
+                            ).toUpperCase()}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {new Date(
+                              trade.entryTimestamp
+                            ).toLocaleDateString()}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {trade.exitTimestamp
+                              ? new Date(
+                                  trade.exitTimestamp
+                                ).toLocaleDateString()
+                              : "—"}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {formatMoney(
+                              trade.entryFill
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {formatMoney(
+                              trade.exitFill
+                            )}
+                          </td>
+
+                          <td
+                            className={
+                              toNumber(
+                                trade.realizedPL
+                              ) >
+                              0
+                                ? "px-3 py-2 text-right text-emerald-300"
+                                : "px-3 py-2 text-right text-red-300"
+                            }
+                          >
+                            {dollar(
+                              trade.realizedPL
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {pct(
+                              trade.realizedReturnPct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-emerald-300">
+                            {dollar(
+                              trade.maxFavorablePL
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right text-red-300">
+                            {dollar(
+                              trade.maxAdversePL
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+              No closed single-leg paper trades yet.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -12471,6 +13268,30 @@ export default function OptionsScanner() {
 
   const forwardValidatorTickRef =
     useRef(false);
+
+  const [
+    singleLegPracticeOpen,
+    setSingleLegPracticeOpen,
+  ] =
+    useState(false);
+
+  const [
+    singleLegPracticeStatus,
+    setSingleLegPracticeStatus,
+  ] =
+    useState(null);
+
+  const [
+    singleLegPracticeLoading,
+    setSingleLegPracticeLoading,
+  ] =
+    useState(false);
+
+  const [
+    singleLegPracticeError,
+    setSingleLegPracticeError,
+  ] =
+    useState("");
 
   const scanInProgressRef =
     useRef(false);
@@ -14146,6 +14967,235 @@ export default function OptionsScanner() {
     refreshForwardValidator,
   ]);
 
+  const refreshSingleLegPractice =
+    useCallback(
+      async () => {
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/single-leg-practice"
+            );
+
+          setSingleLegPracticeStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setSingleLegPracticeError(
+            error.message
+          );
+
+          return null;
+        }
+      },
+      []
+    );
+
+  const updateSingleLegPracticeSettings =
+    useCallback(
+      async (patch) => {
+        setSingleLegPracticeLoading(
+          true
+        );
+
+        setSingleLegPracticeError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/single-leg-practice/settings",
+              {
+                method:
+                  "PUT",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    settings:
+                      patch,
+                  }),
+              }
+            );
+
+          setSingleLegPracticeStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setSingleLegPracticeError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setSingleLegPracticeLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  const openSingleLegPractice =
+    useCallback(
+      async (optionType) => {
+        setSingleLegPracticeLoading(
+          true
+        );
+
+        setSingleLegPracticeError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/single-leg-practice/open",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    optionType,
+
+                    quantity:
+                      singleLegPracticeStatus
+                        ?.settings
+                        ?.quantity ??
+                      1,
+                  }),
+              }
+            );
+
+          setSingleLegPracticeStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setSingleLegPracticeError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setSingleLegPracticeLoading(
+            false
+          );
+        }
+      },
+      [
+        singleLegPracticeStatus
+          ?.settings
+          ?.quantity,
+      ]
+    );
+
+  const closeSingleLegPractice =
+    useCallback(
+      async (tradeId) => {
+        setSingleLegPracticeLoading(
+          true
+        );
+
+        setSingleLegPracticeError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/single-leg-practice/close",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    tradeId,
+                  }),
+              }
+            );
+
+          setSingleLegPracticeStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setSingleLegPracticeError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setSingleLegPracticeLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  useEffect(() => {
+    if (
+      !robinhoodStatus.connected ||
+      !singleLegPracticeOpen
+    ) {
+      return undefined;
+    }
+
+    refreshSingleLegPractice();
+
+    const timer =
+      window.setInterval(
+        () => {
+          refreshSingleLegPractice();
+        },
+        30000
+      );
+
+    return () => {
+      window.clearInterval(
+        timer
+      );
+    };
+  }, [
+    robinhoodStatus.connected,
+    singleLegPracticeOpen,
+    refreshSingleLegPractice,
+  ]);
+
   /*
     =======================================================
     STATUS
@@ -14956,6 +16006,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setSingleLegPracticeOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                singleLegPracticeOpen
+                  ? "rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-xs font-mono text-violet-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Calls / Puts Practice
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -15717,6 +16784,40 @@ Do not invent missing values.`
           }
           onToggle={
             setForwardValidatorEnabled
+          }
+        />
+      )}
+
+      {/* SINGLE-LEG CALL / PUT PRACTICE */}
+
+      {singleLegPracticeOpen && (
+        <SingleLegPracticePanel
+          tickers={
+            tickers
+          }
+          status={
+            singleLegPracticeStatus
+          }
+          loading={
+            singleLegPracticeLoading
+          }
+          error={
+            singleLegPracticeError
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+          onRefresh={
+            refreshSingleLegPractice
+          }
+          onOpen={
+            openSingleLegPractice
+          }
+          onClose={
+            closeSingleLegPractice
+          }
+          onSettings={
+            updateSingleLegPracticeSettings
           }
         />
       )}
