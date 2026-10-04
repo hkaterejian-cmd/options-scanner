@@ -8759,6 +8759,37 @@ function OptionReplayResearchPanel({
     result?.coverage ??
     {};
 
+  const coverageDetail =
+    result?.coverage_detail ??
+    {};
+
+  const monthlySignalDates =
+    Array.isArray(
+      coverageDetail
+        ?.monthly_signal_dates
+    )
+      ? coverageDetail
+          .monthly_signal_dates
+      : [];
+
+  const holdCoverage =
+    Array.isArray(
+      coverageDetail
+        ?.replay_rows_by_hold
+    )
+      ? coverageDetail
+          .replay_rows_by_hold
+      : [];
+
+  const dteCoverage =
+    Array.isArray(
+      coverageDetail
+        ?.replay_rows_by_dte_bucket
+    )
+      ? coverageDetail
+          .replay_rows_by_dte_bucket
+      : [];
+
   const pct =
     (
       value,
@@ -9698,9 +9729,9 @@ function OptionSpreadWalkForwardPanel({
 
           {[
             ["lookbackDays", "Lookback days"],
-            ["trainDays", "Initial train"],
-            ["validationDays", "Validation"],
-            ["testDays", "Test"],
+            ["trainCoverageDates", "Train signal dates"],
+            ["validationCoverageDates", "Validation signal dates"],
+            ["testCoverageDates", "Test signal dates"],
             ["maxSignalsPerHold", "Max signals / hold"],
           ].map(
             ([
@@ -9765,6 +9796,10 @@ function OptionSpreadWalkForwardPanel({
           </button>
         </div>
 
+        <div className="mt-3 rounded-lg border border-teal-500/15 bg-teal-500/[0.02] p-3 text-[9px] leading-relaxed text-zinc-500">
+          Coverage-aware mode uses actual replayable option-signal dates rather than empty calendar windows. The 20 / 8 / 6 defaults mean the first fold uses 20 replayable signal dates for training, the next 8 for validation, and the next 6 for the unseen test.
+        </div>
+
         {error && (
           <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
             Option walk-forward error: {error}
@@ -9780,6 +9815,183 @@ function OptionSpreadWalkForwardPanel({
               <span className="text-amber-300">
                 {result.methodology?.pricing}
               </span>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/[0.02] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest text-sky-400">
+                    Option data coverage
+                  </div>
+
+                  <div className="mt-1 text-sm font-bold text-white">
+                    Actual replayable history used to build folds
+                  </div>
+                </div>
+
+                <div className="rounded border border-sky-500/20 px-2 py-1 text-[9px] uppercase tracking-widest text-sky-300">
+                  {coverageDetail.unique_signal_dates ?? 0} signal dates
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+                <Stat
+                  label="Earliest Replay"
+                  value={
+                    coverageDetail.earliest_replayable_date ??
+                    "—"
+                  }
+                />
+
+                <Stat
+                  label="Latest Replay"
+                  value={
+                    coverageDetail.latest_replayable_date ??
+                    "—"
+                  }
+                />
+
+                <Stat
+                  label="Coverage Days"
+                  value={
+                    coverageDetail.coverage_days ??
+                    "—"
+                  }
+                />
+
+                <Stat
+                  label="Signal Dates"
+                  value={
+                    coverageDetail.unique_signal_dates ??
+                    0
+                  }
+                />
+
+                <Stat
+                  label="Bullish Dates"
+                  value={
+                    coverageDetail.bullish_signal_dates ??
+                    0
+                  }
+                />
+
+                <Stat
+                  label="Bearish Dates"
+                  value={
+                    coverageDetail.bearish_signal_dates ??
+                    0
+                  }
+                />
+
+                <Stat
+                  label="Missing-Bar Rate"
+                  value={pct(
+                    coverageDetail.missing_bar_rate_pct
+                  )}
+                />
+
+                <Stat
+                  label="Replay Rows"
+                  value={
+                    coverage.replay_rows ??
+                    0
+                  }
+                />
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <div className="rounded-lg border border-zinc-800 bg-black/20 p-3">
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Replayable signal dates by month
+                  </div>
+
+                  <div className="mt-2 max-h-44 overflow-y-auto">
+                    {monthlySignalDates.length >
+                    0 ? (
+                      monthlySignalDates
+                        .slice(
+                          -18
+                        )
+                        .map(
+                          (row) => (
+                            <div
+                              key={
+                                row.month
+                              }
+                              className="flex items-center justify-between border-b border-zinc-900 py-1.5 font-mono text-[9px]"
+                            >
+                              <span className="text-zinc-400">
+                                {row.month}
+                              </span>
+
+                              <span className="text-sky-300">
+                                {row.count}
+                              </span>
+                            </div>
+                          )
+                        )
+                    ) : (
+                      <div className="text-[9px] text-zinc-600">
+                        No replayable months.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-black/20 p-3">
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Replay rows by hold
+                  </div>
+
+                  <div className="mt-2 space-y-1">
+                    {holdCoverage.map(
+                      (row) => (
+                        <div
+                          key={
+                            row.hold_sessions
+                          }
+                          className="flex items-center justify-between border-b border-zinc-900 py-1.5 font-mono text-[9px]"
+                        >
+                          <span className="text-zinc-400">
+                            {row.hold_sessions} sessions
+                          </span>
+
+                          <span className="text-teal-300">
+                            {row.count}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-black/20 p-3">
+                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                    Replay rows by entry DTE
+                  </div>
+
+                  <div className="mt-2 space-y-1">
+                    {dteCoverage.map(
+                      (row) => (
+                        <div
+                          key={
+                            row.bucket
+                          }
+                          className="flex items-center justify-between border-b border-zinc-900 py-1.5 font-mono text-[9px]"
+                        >
+                          <span className="text-zinc-400">
+                            {row.bucket} DTE
+                          </span>
+
+                          <span className="text-indigo-300">
+                            {row.count}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
@@ -10147,7 +10359,7 @@ function OptionSpreadWalkForwardPanel({
             </div>
 
             <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
-              A structure must have at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10 before it can be selected. This is deliberately stricter than the single-split Option Research Lab.
+              Folds are now built from real replayable option-signal dates, but a structure still must have at least 20 actual training replays, 8 actual validation replays, positive validation average return, and validation profit factor of at least 1.10. The engine does not lower those standards merely to force a result.
             </div>
           </>
         )}
@@ -10916,14 +11128,14 @@ export default function OptionsScanner() {
       lookbackDays:
         730,
 
-      trainDays:
-        365,
+      trainCoverageDates:
+        20,
 
-      validationDays:
-        120,
+      validationCoverageDates:
+        8,
 
-      testDays:
-        60,
+      testCoverageDates:
+        6,
 
       maxSignalsPerHold:
         40,
@@ -12261,19 +12473,19 @@ export default function OptionsScanner() {
                         optionWalkForwardSettings.lookbackDays
                       ),
 
-                    trainDays:
+                    trainCoverageDates:
                       Number(
-                        optionWalkForwardSettings.trainDays
+                        optionWalkForwardSettings.trainCoverageDates
                       ),
 
-                    validationDays:
+                    validationCoverageDates:
                       Number(
-                        optionWalkForwardSettings.validationDays
+                        optionWalkForwardSettings.validationCoverageDates
                       ),
 
-                    testDays:
+                    testCoverageDates:
                       Number(
-                        optionWalkForwardSettings.testDays
+                        optionWalkForwardSettings.testCoverageDates
                       ),
 
                     maxSignalsPerHold:
