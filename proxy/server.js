@@ -45,6 +45,12 @@ const FORWARD_VALIDATOR_FILE =
     "forward-validator.json"
   );
 
+const SINGLE_LEG_PRACTICE_FILE =
+  path.join(
+    SCANNER_DATA_DIR,
+    "single-leg-practice.json"
+  );
+
 let forwardValidatorScheduler =
   null;
 
@@ -55,6 +61,15 @@ let forwardValidatorLastRunAt =
   null;
 
 let forwardValidatorLastError =
+  null;
+
+let singleLegPracticeTickInProgress =
+  false;
+
+let singleLegPracticeLastRunAt =
+  null;
+
+let singleLegPracticeLastError =
   null;
 
 /*
@@ -7983,6 +7998,7 @@ function startForwardValidatorScheduler() {
     setInterval(
       () => {
         runScheduledForwardValidatorTick();
+        runScheduledSingleLegPracticeTick();
       },
       15000
     );
@@ -7997,9 +8013,1644 @@ function startForwardValidatorScheduler() {
   setTimeout(
     () => {
       runScheduledForwardValidatorTick();
+      runScheduledSingleLegPracticeTick();
     },
     2500
   );
+}
+
+
+/*
+  =========================================================
+  SINGLE-LEG CALL / PUT PAPER PRACTICE
+  =========================================================
+
+  Manual paper-only long calls and puts.
+  Robinhood order tools remain unavailable.
+*/
+
+function defaultSingleLegPracticeState() {
+  return {
+    version: 1,
+
+    settings: {
+      symbol:
+        "PLTR",
+
+      targetDte:
+        9,
+
+      holdSessions:
+        5,
+
+      quantity:
+        1,
+
+      fillModel:
+        "quarter_spread",
+
+      feePerContractPerLeg:
+        0,
+    },
+
+    lastUpdatedAt:
+      null,
+
+    trades: [],
+  };
+}
+
+function normalizeSingleLegPracticeState(
+  input
+) {
+  const base =
+    defaultSingleLegPracticeState();
+
+  const value =
+    input &&
+    typeof input ===
+      "object" &&
+    !Array.isArray(
+      input
+    )
+      ? input
+      : {};
+
+  const settings =
+    value.settings &&
+    typeof value.settings ===
+      "object" &&
+    !Array.isArray(
+      value.settings
+    )
+      ? value.settings
+      : {};
+
+  return {
+    version: 1,
+
+    settings: {
+      symbol:
+        normalizeTicker(
+          settings.symbol ||
+          base.settings.symbol
+        ),
+
+      targetDte:
+        Math.max(
+          5,
+          Math.min(
+            45,
+            Math.round(
+              Number(
+                settings.targetDte ??
+                base.settings.targetDte
+              ) ||
+              base.settings.targetDte
+            )
+          )
+        ),
+
+      holdSessions:
+        Math.max(
+          1,
+          Math.min(
+            20,
+            Math.round(
+              Number(
+                settings.holdSessions ??
+                base.settings.holdSessions
+              ) ||
+              base.settings.holdSessions
+            )
+          )
+        ),
+
+      quantity:
+        Math.max(
+          1,
+          Math.min(
+            10,
+            Math.round(
+              Number(
+                settings.quantity ??
+                base.settings.quantity
+              ) ||
+              base.settings.quantity
+            )
+          )
+        ),
+
+      fillModel:
+        [
+          "midpoint",
+          "quarter_spread",
+          "conservative",
+        ].includes(
+          settings.fillModel
+        )
+          ? settings.fillModel
+          : base.settings.fillModel,
+
+      feePerContractPerLeg:
+        Math.max(
+          0,
+          Number(
+            settings.feePerContractPerLeg ??
+            base.settings.feePerContractPerLeg
+          ) ||
+          0
+        ),
+    },
+
+    lastUpdatedAt:
+      value.lastUpdatedAt ||
+      null,
+
+    trades:
+      Array.isArray(
+        value.trades
+      )
+        ? value.trades.filter(
+            (trade) =>
+              trade &&
+              typeof trade ===
+                "object" &&
+              !Array.isArray(
+                trade
+              )
+          )
+        : [],
+  };
+}
+
+async function readSingleLegPracticeState() {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  try {
+    const raw =
+      await fs.readFile(
+        SINGLE_LEG_PRACTICE_FILE,
+        "utf8"
+      );
+
+    return normalizeSingleLegPracticeState(
+      JSON.parse(
+        raw
+      )
+    );
+
+  } catch (error) {
+    if (
+      error?.code ===
+      "ENOENT"
+    ) {
+      return defaultSingleLegPracticeState();
+    }
+
+    throw error;
+  }
+}
+
+async function writeSingleLegPracticeState(
+  state
+) {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  const normalized =
+    normalizeSingleLegPracticeState({
+      ...state,
+
+      lastUpdatedAt:
+        new Date().toISOString(),
+    });
+
+  await fs.writeFile(
+    SINGLE_LEG_PRACTICE_FILE,
+    JSON.stringify(
+      normalized,
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  return normalized;
+}
+
+function singleOptionQuoteSnapshot(
+  quote
+) {
+  const leg =
+    optionLegSnapshot(
+      quote
+    );
+
+  if (!leg) {
+    return null;
+  }
+
+  return {
+    ...leg,
+
+    midpoint:
+      leg.mark,
+
+    bid:
+      leg.bid,
+
+    ask:
+      leg.ask,
+  };
+}
+
+function simulateSingleLegFill({
+  quote,
+  side,
+  model,
+}) {
+  if (!quote) {
+    return null;
+  }
+
+  const midpoint =
+    finiteNumber(
+      quote.midpoint
+    );
+
+  if (
+    midpoint ===
+    null
+  ) {
+    return null;
+  }
+
+  if (
+    model ===
+    "midpoint"
+  ) {
+    return midpoint;
+  }
+
+  if (
+    side ===
+    "entry"
+  ) {
+    const ask =
+      finiteNumber(
+        quote.ask
+      );
+
+    if (
+      ask ===
+      null
+    ) {
+      return midpoint;
+    }
+
+    if (
+      model ===
+      "conservative"
+    ) {
+      return ask;
+    }
+
+    return (
+      midpoint +
+      (
+        ask -
+        midpoint
+      ) *
+        0.25
+    );
+  }
+
+  const bid =
+    finiteNumber(
+      quote.bid
+    );
+
+  if (
+    bid ===
+      null
+  ) {
+    return midpoint;
+  }
+
+  if (
+    model ===
+    "conservative"
+  ) {
+    return bid;
+  }
+
+  return (
+    midpoint -
+    (
+      midpoint -
+      bid
+    ) *
+      0.25
+  );
+}
+
+async function currentEquityPrice(
+  symbol
+) {
+  const result =
+    await callRobinhoodTool(
+      "get_equity_quotes",
+      {
+        symbols: [
+          symbol,
+        ],
+      }
+    );
+
+  const payload =
+    unwrapRobinhoodToolResult(
+      result
+    );
+
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  const row =
+    data?.results?.[0] ??
+    null;
+
+  const quote =
+    row?.quote ??
+    {};
+
+  const price =
+    finiteNumber(
+      quote.last_trade_price
+    ) ??
+    finiteNumber(
+      quote.last_non_reg_trade_price
+    );
+
+  if (
+    price ===
+    null
+  ) {
+    throw new Error(
+      "Current stock price was unavailable."
+    );
+  }
+
+  return {
+    price,
+
+    timestamp:
+      quote.venue_last_trade_time ??
+      quote.venue_last_non_reg_trade_time ??
+      null,
+  };
+}
+
+async function buildSingleLegContract({
+  symbol,
+  type,
+  targetDte,
+  now,
+}) {
+  const stock =
+    await currentEquityPrice(
+      symbol
+    );
+
+  const chainResult =
+    await callRobinhoodTool(
+      "get_option_chains",
+      {
+        underlying_symbol:
+          symbol,
+      }
+    );
+
+  const chainPayload =
+    unwrapRobinhoodToolResult(
+      chainResult
+    );
+
+  const expiration =
+    chooseTargetExpiration({
+      dates:
+        activeExpirationDates(
+          chainPayload
+        ),
+
+      now,
+      targetDte,
+    });
+
+  if (!expiration) {
+    throw new Error(
+      "No active option expiration met the target DTE."
+    );
+  }
+
+  const instruments =
+    await loadActiveOptionInstruments({
+      symbol,
+      expiration,
+      type,
+    });
+
+  const usable =
+    instruments
+      .map(
+        (instrument) => ({
+          ...instrument,
+
+          strike:
+            finiteNumber(
+              instrument.strike_price
+            ),
+        })
+      )
+      .filter(
+        (instrument) =>
+          instrument.strike !==
+          null
+      );
+
+  if (
+    !usable.length
+  ) {
+    throw new Error(
+      "No active option contracts were returned."
+    );
+  }
+
+  const chosen =
+    usable.reduce(
+      (
+        best,
+        instrument
+      ) =>
+        Math.abs(
+          instrument.strike -
+          stock.price
+        ) <
+        Math.abs(
+          best.strike -
+          stock.price
+        )
+          ? instrument
+          : best,
+      usable[0]
+    );
+
+  const quoteResult =
+    await callRobinhoodTool(
+      "get_option_quotes",
+      {
+        instrument_ids: [
+          chosen.id,
+        ],
+      }
+    );
+
+  const quotePayload =
+    unwrapRobinhoodToolResult(
+      quoteResult
+    );
+
+  const quoteMap =
+    optionQuoteMapFromPayload(
+      quotePayload
+    );
+
+  const quote =
+    singleOptionQuoteSnapshot(
+      quoteMap.get(
+        chosen.id
+      )
+    );
+
+  if (
+    !quote ||
+    quote.midpoint ===
+      null
+  ) {
+    throw new Error(
+      "Current option quote was incomplete."
+    );
+  }
+
+  const expirationDate =
+    new Date(
+      expiration +
+      "T00:00:00Z"
+    );
+
+  const dte =
+    Math.round(
+      (
+        expirationDate.getTime() -
+        now.getTime()
+      ) /
+        (
+          24 *
+          60 *
+          60 *
+          1000
+        )
+    );
+
+  return {
+    stock,
+    expiration,
+    dte,
+
+    instrument: {
+      id:
+        chosen.id,
+
+      strike:
+        chosen.strike,
+
+      type,
+    },
+
+    quote,
+  };
+}
+
+async function historicalSingleLegExit({
+  trade,
+  exitDate,
+}) {
+  const start =
+    new Date(
+      exitDate +
+      "T00:00:00Z"
+    );
+
+  const end =
+    addUtcDays(
+      start,
+      2
+    );
+
+  const result =
+    await callRobinhoodTool(
+      "get_option_historicals",
+      {
+        instrument_ids: [
+          trade.instrumentId,
+        ],
+
+        start_time:
+          start.toISOString(),
+
+        end_time:
+          end.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+      }
+    );
+
+  const payload =
+    unwrapRobinhoodToolResult(
+      result
+    );
+
+  const results =
+    extractOptionHistoricalResults(
+      payload
+    );
+
+  const optionResult =
+    results.find(
+      (item) =>
+        item.instrument_id ===
+        trade.instrumentId
+    );
+
+  const bar =
+    normalizeOptionBars(
+      optionResult
+    ).find(
+      (item) =>
+        item.date ===
+        exitDate
+    );
+
+  if (!bar) {
+    return null;
+  }
+
+  return {
+    midpoint:
+      bar.close,
+
+    fill:
+      bar.close,
+
+    source:
+      "historical_daily_close",
+
+    exitTimestamp:
+      exitDate +
+      "T20:00:00Z",
+  };
+}
+
+async function updateSingleLegPracticeOpenTrades({
+  state,
+  now,
+}) {
+  const openTrades =
+    state.trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  if (
+    !openTrades.length
+  ) {
+    return state;
+  }
+
+  const ids =
+    openTrades.map(
+      (trade) =>
+        trade.instrumentId
+    );
+
+  const quoteResult =
+    await callRobinhoodTool(
+      "get_option_quotes",
+      {
+        instrument_ids:
+          ids,
+      }
+    );
+
+  const quoteMap =
+    optionQuoteMapFromPayload(
+      unwrapRobinhoodToolResult(
+        quoteResult
+      )
+    );
+
+  const earliest =
+    openTrades
+      .map(
+        (trade) =>
+          Date.parse(
+            trade.entryTimestamp
+          )
+      )
+      .filter(
+        Number.isFinite
+      )
+      .reduce(
+        (
+          min,
+          value
+        ) =>
+          Math.min(
+            min,
+            value
+          ),
+        now.getTime()
+      );
+
+  const historicalResult =
+    await callRobinhoodTool(
+      "get_equity_historicals",
+      {
+        symbols: [
+          state.settings.symbol,
+        ],
+
+        start_time:
+          new Date(
+            earliest -
+            2 *
+              24 *
+              60 *
+              60 *
+              1000
+          ).toISOString(),
+
+        end_time:
+          now.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+
+        adjustment_type:
+          "split",
+      }
+    );
+
+  const equityBars =
+    extractBacktestBars(
+      unwrapRobinhoodToolResult(
+        historicalResult
+      )
+    );
+
+  const eastern =
+    easternClockParts(
+      now
+    );
+
+  const completedBars =
+    equityBars.filter(
+      (bar) => {
+        const date =
+          utcDateKey(
+            bar.time
+          );
+
+        return (
+          date <
+            eastern.date ||
+          (
+            date ===
+              eastern.date &&
+            eastern.afterClose
+          )
+        );
+      }
+    );
+
+  const updatedTrades =
+    [];
+
+  for (
+    const trade of state.trades
+  ) {
+    if (
+      trade.status !==
+      "open"
+    ) {
+      updatedTrades.push(
+        trade
+      );
+
+      continue;
+    }
+
+    const quote =
+      singleOptionQuoteSnapshot(
+        quoteMap.get(
+          trade.instrumentId
+        )
+      );
+
+    const currentMidpoint =
+      finiteNumber(
+        quote?.midpoint
+      );
+
+    const currentPL =
+      currentMidpoint !==
+        null
+        ? (
+            currentMidpoint -
+            trade.entryFill
+          ) *
+          100 *
+          trade.quantity
+        : null;
+
+    const nextTrade = {
+      ...trade,
+
+      lastMarkedAt:
+        now.toISOString(),
+
+      currentMidpoint,
+
+      currentPL,
+
+      maxFavorablePL:
+        currentPL !==
+          null
+          ? Math.max(
+              finiteNumber(
+                trade.maxFavorablePL
+              ) ??
+              0,
+              currentPL
+            )
+          : trade.maxFavorablePL,
+
+      maxAdversePL:
+        currentPL !==
+          null
+          ? Math.min(
+              finiteNumber(
+                trade.maxAdversePL
+              ) ??
+              0,
+              currentPL
+            )
+          : trade.maxAdversePL,
+    };
+
+    const entryDate =
+      utcDateKey(
+        trade.entryTimestamp
+      );
+
+    const sessionBars =
+      completedBars.filter(
+        (bar) =>
+          utcDateKey(
+            bar.time
+          ) >=
+          entryDate
+      );
+
+    if (
+      sessionBars.length <
+      state.settings
+        .holdSessions
+    ) {
+      updatedTrades.push(
+        nextTrade
+      );
+
+      continue;
+    }
+
+    const exitBar =
+      sessionBars[
+        state.settings
+          .holdSessions -
+        1
+      ];
+
+    const exitDate =
+      utcDateKey(
+        exitBar.time
+      );
+
+    let exit =
+      null;
+
+    if (
+      exitDate ===
+        eastern.date &&
+      eastern.nearClose &&
+      quote
+    ) {
+      const fill =
+        simulateSingleLegFill({
+          quote,
+          side:
+            "exit",
+          model:
+            state.settings
+              .fillModel,
+        });
+
+      if (
+        fill !==
+        null
+      ) {
+        exit = {
+          midpoint:
+            quote.midpoint,
+
+          fill,
+
+          source:
+            "live_near_close",
+
+          exitTimestamp:
+            now.toISOString(),
+        };
+      }
+    }
+
+    if (!exit) {
+      exit =
+        await historicalSingleLegExit({
+          trade,
+          exitDate,
+        });
+    }
+
+    if (!exit) {
+      updatedTrades.push(
+        nextTrade
+      );
+
+      continue;
+    }
+
+    const totalFees =
+      state.settings
+        .feePerContractPerLeg *
+      2 *
+      trade.quantity;
+
+    const realizedPL =
+      (
+        exit.fill -
+        trade.entryFill
+      ) *
+        100 *
+        trade.quantity -
+      totalFees;
+
+    const exitSlippageCents =
+      exit.midpoint !==
+        null &&
+      exit.fill !==
+        null
+        ? (
+            exit.midpoint -
+            exit.fill
+          ) *
+          100
+        : null;
+
+    updatedTrades.push({
+      ...nextTrade,
+
+      status:
+        "closed",
+
+      exitDate,
+
+      exitTimestamp:
+        exit.exitTimestamp,
+
+      exitSource:
+        exit.source,
+
+      exitMidpoint:
+        exit.midpoint,
+
+      exitFill:
+        exit.fill,
+
+      exitSlippageCents,
+
+      totalFees,
+
+      realizedPL,
+
+      realizedReturnPct:
+        trade.entryFill >
+        0
+          ? (
+              realizedPL /
+              (
+                trade.entryFill *
+                100 *
+                trade.quantity
+              )
+            ) *
+            100
+          : null,
+    });
+  }
+
+  return {
+    ...state,
+
+    trades:
+      updatedTrades,
+  };
+}
+
+function summarizeSingleLegPractice(
+  state
+) {
+  const trades =
+    Array.isArray(
+      state?.trades
+    )
+      ? state.trades
+      : [];
+
+  const open =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closed =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const wins =
+    closed.filter(
+      (trade) =>
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ) >
+        0
+    );
+
+  const losses =
+    closed.filter(
+      (trade) =>
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ) <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          (
+            finiteNumber(
+              trade.realizedPL
+            ) ??
+            0
+          ),
+        0
+      )
+    );
+
+  let cumulative =
+    0;
+
+  let peak =
+    0;
+
+  let maxDrawdown =
+    0;
+
+  for (
+    const trade of closed
+  ) {
+    cumulative +=
+      finiteNumber(
+        trade.realizedPL
+      ) ??
+      0;
+
+    peak =
+      Math.max(
+        peak,
+        cumulative
+      );
+
+    maxDrawdown =
+      Math.min(
+        maxDrawdown,
+        cumulative -
+        peak
+      );
+  }
+
+  return {
+    total_trades:
+      trades.length,
+
+    open_trades:
+      open.length,
+
+    closed_trades:
+      closed.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    win_rate_pct:
+      closed.length
+        ? (
+            wins.length /
+            closed.length
+          ) *
+          100
+        : null,
+
+    total_pl:
+      cumulative,
+
+    average_pl:
+      averageNumbers(
+        closed.map(
+          (trade) =>
+            finiteNumber(
+              trade.realizedPL
+            )
+        )
+      ),
+
+    average_return_pct:
+      averageNumbers(
+        closed.map(
+          (trade) =>
+            finiteNumber(
+              trade.realizedReturnPct
+            )
+        )
+      ),
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : grossProfit >
+            0
+          ? null
+          : null,
+
+    max_drawdown:
+      maxDrawdown,
+  };
+}
+
+async function openSingleLegPracticeTrade({
+  state,
+  type,
+  quantity,
+}) {
+  if (
+    ![
+      "call",
+      "put",
+    ].includes(
+      type
+    )
+  ) {
+    throw new Error(
+      "Single-leg practice type must be call or put."
+    );
+  }
+
+  const openCount =
+    state.trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    ).length;
+
+  if (
+    openCount >=
+    5
+  ) {
+    throw new Error(
+      "Single-leg practice is limited to 5 open paper positions."
+    );
+  }
+
+  const now =
+    new Date();
+
+  const contract =
+    await buildSingleLegContract({
+      symbol:
+        state.settings.symbol,
+
+      type,
+      targetDte:
+        state.settings.targetDte,
+
+      now,
+    });
+
+  const entryFill =
+    simulateSingleLegFill({
+      quote:
+        contract.quote,
+
+      side:
+        "entry",
+
+      model:
+        state.settings.fillModel,
+    });
+
+  if (
+    entryFill ===
+      null ||
+    entryFill <=
+      0
+  ) {
+    throw new Error(
+      "A valid paper entry fill could not be simulated."
+    );
+  }
+
+  const qty =
+    Math.max(
+      1,
+      Math.min(
+        10,
+        Math.round(
+          Number(
+            quantity ??
+            state.settings.quantity
+          ) ||
+          state.settings.quantity
+        )
+      )
+    );
+
+  const duplicate =
+    state.trades.some(
+      (trade) =>
+        trade.status ===
+          "open" &&
+        trade.instrumentId ===
+          contract.instrument.id
+    );
+
+  if (duplicate) {
+    throw new Error(
+      "That option contract is already open in single-leg practice."
+    );
+  }
+
+  const entrySlippageCents =
+    (
+      entryFill -
+      contract.quote
+        .midpoint
+    ) *
+    100;
+
+  const trade = {
+    id:
+      crypto.randomUUID(),
+
+    practiceVersion:
+      1,
+
+    status:
+      "open",
+
+    symbol:
+      state.settings.symbol,
+
+    optionType:
+      type,
+
+    quantity:
+      qty,
+
+    entryTimestamp:
+      now.toISOString(),
+
+    entryUnderlyingPrice:
+      contract.stock.price,
+
+    expiration:
+      contract.expiration,
+
+    entryDte:
+      contract.dte,
+
+    instrumentId:
+      contract.instrument.id,
+
+    strike:
+      contract.instrument.strike,
+
+    fillModel:
+      state.settings.fillModel,
+
+    entryMidpoint:
+      contract.quote.midpoint,
+
+    entryBid:
+      contract.quote.bid,
+
+    entryAsk:
+      contract.quote.ask,
+
+    entryFill,
+
+    entrySlippageCents,
+
+    entryIv:
+      contract.quote.iv,
+
+    entryDelta:
+      contract.quote.delta,
+
+    entryGamma:
+      contract.quote.gamma,
+
+    entryTheta:
+      contract.quote.theta,
+
+    entryVega:
+      contract.quote.vega,
+
+    entryVolume:
+      contract.quote.volume,
+
+    entryOpenInterest:
+      contract.quote.openInterest,
+
+    currentMidpoint:
+      contract.quote.midpoint,
+
+    currentPL:
+      0,
+
+    maxFavorablePL:
+      0,
+
+    maxAdversePL:
+      0,
+
+    lastMarkedAt:
+      now.toISOString(),
+  };
+
+  return writeSingleLegPracticeState({
+    ...state,
+
+    trades: [
+      ...state.trades,
+      trade,
+    ],
+  });
+}
+
+async function closeSingleLegPracticeTrade({
+  state,
+  tradeId,
+}) {
+  const trade =
+    state.trades.find(
+      (item) =>
+        item.id ===
+        tradeId
+    );
+
+  if (
+    !trade ||
+    trade.status !==
+      "open"
+  ) {
+    throw new Error(
+      "Open single-leg paper trade not found."
+    );
+  }
+
+  const quoteResult =
+    await callRobinhoodTool(
+      "get_option_quotes",
+      {
+        instrument_ids: [
+          trade.instrumentId,
+        ],
+      }
+    );
+
+  const quoteMap =
+    optionQuoteMapFromPayload(
+      unwrapRobinhoodToolResult(
+        quoteResult
+      )
+    );
+
+  const quote =
+    singleOptionQuoteSnapshot(
+      quoteMap.get(
+        trade.instrumentId
+      )
+    );
+
+  const exitFill =
+    simulateSingleLegFill({
+      quote,
+      side:
+        "exit",
+      model:
+        state.settings.fillModel,
+    });
+
+  if (
+    exitFill ===
+      null
+  ) {
+    throw new Error(
+      "Current option quote was unavailable for the paper close."
+    );
+  }
+
+  const totalFees =
+    state.settings
+      .feePerContractPerLeg *
+    2 *
+    trade.quantity;
+
+  const realizedPL =
+    (
+      exitFill -
+      trade.entryFill
+    ) *
+      100 *
+      trade.quantity -
+    totalFees;
+
+  const exitSlippageCents =
+    (
+      quote.midpoint -
+      exitFill
+    ) *
+    100;
+
+  const nextTrades =
+    state.trades.map(
+      (item) =>
+        item.id ===
+        trade.id
+          ? {
+              ...item,
+
+              status:
+                "closed",
+
+              exitTimestamp:
+                new Date().toISOString(),
+
+              exitSource:
+                "manual_live_quote",
+
+              exitMidpoint:
+                quote.midpoint,
+
+              exitFill,
+
+              exitSlippageCents,
+
+              totalFees,
+
+              realizedPL,
+
+              realizedReturnPct:
+                item.entryFill >
+                0
+                  ? (
+                      realizedPL /
+                      (
+                        item.entryFill *
+                        100 *
+                        item.quantity
+                      )
+                    ) *
+                    100
+                  : null,
+            }
+          : item
+    );
+
+  return writeSingleLegPracticeState({
+    ...state,
+
+    trades:
+      nextTrades,
+  });
+}
+
+async function runSingleLegPracticeTick(
+  state
+) {
+  const next =
+    await updateSingleLegPracticeOpenTrades({
+      state,
+      now:
+        new Date(),
+    });
+
+  return writeSingleLegPracticeState(
+    next
+  );
+}
+
+function singleLegPracticeSchedulerStatus() {
+  return {
+    backend_scheduler_active:
+      !!forwardValidatorScheduler,
+
+    tick_in_progress:
+      singleLegPracticeTickInProgress,
+
+    last_run_at:
+      singleLegPracticeLastRunAt,
+
+    last_error:
+      singleLegPracticeLastError,
+  };
+}
+
+async function runScheduledSingleLegPracticeTick() {
+  if (
+    singleLegPracticeTickInProgress
+  ) {
+    return;
+  }
+
+  singleLegPracticeTickInProgress =
+    true;
+
+  try {
+    const state =
+      await readSingleLegPracticeState();
+
+    if (
+      !state.trades.some(
+        (trade) =>
+          trade.status ===
+          "open"
+      )
+    ) {
+      return;
+    }
+
+    await runSingleLegPracticeTick(
+      state
+    );
+
+    singleLegPracticeLastRunAt =
+      new Date().toISOString();
+
+    singleLegPracticeLastError =
+      null;
+
+  } catch (error) {
+    singleLegPracticeLastError =
+      safeErrorMessage(
+        error
+      );
+
+    console.error(
+      "[Single-leg practice scheduler]",
+      singleLegPracticeLastError
+    );
+
+  } finally {
+    singleLegPracticeTickInProgress =
+      false;
+  }
 }
 
 /*
@@ -16814,6 +18465,225 @@ app.post(
 
         scheduler:
           forwardValidatorSchedulerStatus(),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+app.get(
+  "/scanner/single-leg-practice",
+
+  async (_req, res) => {
+    try {
+      const state =
+        await readSingleLegPracticeState();
+
+      return res.json({
+        ...state,
+
+        summary:
+          summarizeSingleLegPractice(
+            state
+          ),
+
+        scheduler:
+          singleLegPracticeSchedulerStatus(),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/single-leg-practice/settings",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readSingleLegPracticeState();
+
+      const incoming =
+        req.body
+          ?.settings &&
+        typeof req.body
+          .settings ===
+          "object"
+          ? req.body
+              .settings
+          : {};
+
+      const next =
+        await writeSingleLegPracticeState({
+          ...current,
+
+          settings: {
+            ...current.settings,
+
+            ...incoming,
+          },
+        });
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeSingleLegPractice(
+            next
+          ),
+
+        scheduler:
+          singleLegPracticeSchedulerStatus(),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.post(
+  "/scanner/single-leg-practice/open",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readSingleLegPracticeState();
+
+      const next =
+        await openSingleLegPracticeTrade({
+          state:
+            current,
+
+          type:
+            req.body
+              ?.optionType,
+
+          quantity:
+            req.body
+              ?.quantity,
+        });
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeSingleLegPractice(
+            next
+          ),
+
+        scheduler:
+          singleLegPracticeSchedulerStatus(),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+app.post(
+  "/scanner/single-leg-practice/close",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readSingleLegPracticeState();
+
+      const next =
+        await closeSingleLegPracticeTrade({
+          state:
+            current,
+
+          tradeId:
+            req.body
+              ?.tradeId,
+        });
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeSingleLegPractice(
+            next
+          ),
+
+        scheduler:
+          singleLegPracticeSchedulerStatus(),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+app.post(
+  "/scanner/single-leg-practice/tick",
+
+  async (_req, res) => {
+    try {
+      const current =
+        await readSingleLegPracticeState();
+
+      const next =
+        await runSingleLegPracticeTick(
+          current
+        );
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeSingleLegPractice(
+            next
+          ),
+
+        scheduler:
+          singleLegPracticeSchedulerStatus(),
 
         paper_only:
           true,
