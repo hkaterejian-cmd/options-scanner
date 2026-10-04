@@ -6909,8 +6909,9 @@ function summarizeForwardValidator(
               trade.realizedPL
             ) ??
             0
-        ),
-      0
+          ),
+        0
+      )
     );
 
   let cumulative =
