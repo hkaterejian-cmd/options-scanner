@@ -8759,37 +8759,6 @@ function OptionReplayResearchPanel({
     result?.coverage ??
     {};
 
-  const coverageDetail =
-    result?.coverage_detail ??
-    {};
-
-  const monthlySignalDates =
-    Array.isArray(
-      coverageDetail
-        ?.monthly_signal_dates
-    )
-      ? coverageDetail
-          .monthly_signal_dates
-      : [];
-
-  const holdCoverage =
-    Array.isArray(
-      coverageDetail
-        ?.replay_rows_by_hold
-    )
-      ? coverageDetail
-          .replay_rows_by_hold
-      : [];
-
-  const dteCoverage =
-    Array.isArray(
-      coverageDetail
-        ?.replay_rows_by_dte_bucket
-    )
-      ? coverageDetail
-          .replay_rows_by_dte_bucket
-      : [];
-
   const pct =
     (
       value,
@@ -9467,6 +9436,37 @@ function OptionSpreadWalkForwardPanel({
   const coverage =
     result?.coverage ??
     {};
+
+  const coverageDetail =
+    result?.coverage_detail ??
+    {};
+
+  const monthlySignalDates =
+    Array.isArray(
+      coverageDetail
+        ?.monthly_signal_dates
+    )
+      ? coverageDetail
+          .monthly_signal_dates
+      : [];
+
+  const holdCoverage =
+    Array.isArray(
+      coverageDetail
+        ?.replay_rows_by_hold
+    )
+      ? coverageDetail
+          .replay_rows_by_hold
+      : [];
+
+  const dteCoverage =
+    Array.isArray(
+      coverageDetail
+        ?.replay_rows_by_dte_bucket
+    )
+      ? coverageDetail
+          .replay_rows_by_dte_bucket
+      : [];
 
   const pct =
     (
