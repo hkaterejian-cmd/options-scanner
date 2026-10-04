@@ -9653,6 +9653,1420 @@ async function runScheduledSingleLegPracticeTick() {
   }
 }
 
+
+/*
+  =========================================================
+  SINGLE-LEG HISTORICAL RESEARCH
+  =========================================================
+*/
+
+function chooseHistoricalSingleOption({
+  instruments,
+  type,
+  spot,
+  moneyness,
+}) {
+  const usable =
+    instruments
+      .map(
+        (instrument) => ({
+          ...instrument,
+
+          strike:
+            finiteNumber(
+              instrument.strike_price
+            ),
+        })
+      )
+      .filter(
+        (instrument) =>
+          instrument.strike !==
+            null &&
+          instrument.type ===
+            type
+      );
+
+  if (
+    !usable.length
+  ) {
+    return null;
+  }
+
+  let multiplier =
+    1;
+
+  if (
+    moneyness ===
+    "itm2"
+  ) {
+    multiplier =
+      type ===
+      "call"
+        ? 0.98
+        : 1.02;
+  }
+
+  if (
+    moneyness ===
+    "otm2"
+  ) {
+    multiplier =
+      type ===
+      "call"
+        ? 1.02
+        : 0.98;
+  }
+
+  const targetStrike =
+    spot *
+    multiplier;
+
+  return usable.reduce(
+    (
+      best,
+      instrument
+    ) =>
+      Math.abs(
+        instrument.strike -
+        targetStrike
+      ) <
+      Math.abs(
+        best.strike -
+        targetStrike
+      )
+        ? instrument
+        : best,
+    usable[0]
+  );
+}
+
+function singleLegMoneynessLabel(
+  value
+) {
+  if (
+    value ===
+    "itm2"
+  ) {
+    return "ITM 2%";
+  }
+
+  if (
+    value ===
+    "otm2"
+  ) {
+    return "OTM 2%";
+  }
+
+  return "ATM";
+}
+
+function simulateHistoricalSingleLegExit({
+  row,
+  maxHoldSessions,
+  profitTargetPct,
+  stopLossPct,
+}) {
+  const entryPrice =
+    finiteNumber(
+      row.entry_price
+    );
+
+  const bars =
+    Array.isArray(
+      row.option_bars
+    )
+      ? row.option_bars
+      : [];
+
+  if (
+    entryPrice ===
+      null ||
+    entryPrice <=
+      0 ||
+    bars.length <
+      maxHoldSessions
+  ) {
+    return null;
+  }
+
+  const targetPrice =
+    profitTargetPct ===
+    null
+      ? null
+      : entryPrice *
+        (
+          1 +
+          profitTargetPct /
+            100
+        );
+
+  const stopPrice =
+    stopLossPct ===
+    null
+      ? null
+      : entryPrice *
+        (
+          1 -
+          stopLossPct /
+            100
+        );
+
+  const usableBars =
+    bars.slice(
+      0,
+      maxHoldSessions
+    );
+
+  let exitPrice =
+    usableBars[
+      usableBars.length -
+        1
+    ].close;
+
+  let exitDate =
+    usableBars[
+      usableBars.length -
+        1
+    ].date;
+
+  let exitReason =
+    "time_exit";
+
+  let realizedHold =
+    usableBars.length;
+
+  let mfePct =
+    -Infinity;
+
+  let maePct =
+    Infinity;
+
+  for (
+    let index =
+      0;
+    index <
+    usableBars.length;
+    index++
+  ) {
+    const bar =
+      usableBars[
+        index
+      ];
+
+    const highReturn =
+      (
+        (
+          bar.high -
+          entryPrice
+        ) /
+        entryPrice
+      ) *
+      100;
+
+    const lowReturn =
+      (
+        (
+          bar.low -
+          entryPrice
+        ) /
+        entryPrice
+      ) *
+      100;
+
+    mfePct =
+      Math.max(
+        mfePct,
+        highReturn
+      );
+
+    maePct =
+      Math.min(
+        maePct,
+        lowReturn
+      );
+
+    const stopGap =
+      stopPrice !==
+        null &&
+      bar.open <=
+        stopPrice;
+
+    const targetGap =
+      targetPrice !==
+        null &&
+      bar.open >=
+        targetPrice;
+
+    if (
+      stopGap
+    ) {
+      exitPrice =
+        bar.open;
+
+      exitDate =
+        bar.date;
+
+      exitReason =
+        "stop_gap";
+
+      realizedHold =
+        index +
+        1;
+
+      break;
+    }
+
+    if (
+      targetGap
+    ) {
+      exitPrice =
+        bar.open;
+
+      exitDate =
+        bar.date;
+
+      exitReason =
+        "target_gap";
+
+      realizedHold =
+        index +
+        1;
+
+      break;
+    }
+
+    const stopTouched =
+      stopPrice !==
+        null &&
+      bar.low <=
+        stopPrice;
+
+    const targetTouched =
+      targetPrice !==
+        null &&
+      bar.high >=
+        targetPrice;
+
+    if (
+      stopTouched &&
+      targetTouched
+    ) {
+      exitPrice =
+        stopPrice;
+
+      exitDate =
+        bar.date;
+
+      exitReason =
+        "same_bar_stop_first";
+
+      realizedHold =
+        index +
+        1;
+
+      break;
+    }
+
+    if (
+      stopTouched
+    ) {
+      exitPrice =
+        stopPrice;
+
+      exitDate =
+        bar.date;
+
+      exitReason =
+        "stop_loss";
+
+      realizedHold =
+        index +
+        1;
+
+      break;
+    }
+
+    if (
+      targetTouched
+    ) {
+      exitPrice =
+        targetPrice;
+
+      exitDate =
+        bar.date;
+
+      exitReason =
+        "profit_target";
+
+      realizedHold =
+        index +
+        1;
+
+      break;
+    }
+  }
+
+  const returnPct =
+    (
+      (
+        exitPrice -
+        entryPrice
+      ) /
+      entryPrice
+    ) *
+    100;
+
+  return {
+    ...row,
+
+    max_hold_sessions:
+      maxHoldSessions,
+
+    profit_target_pct:
+      profitTargetPct,
+
+    stop_loss_pct:
+      stopLossPct,
+
+    exit_date:
+      exitDate,
+
+    exit_price:
+      exitPrice,
+
+    exit_reason:
+      exitReason,
+
+    realized_hold_sessions:
+      realizedHold,
+
+    return_pct:
+      returnPct,
+
+    pnl_dollars:
+      (
+        exitPrice -
+        entryPrice
+      ) *
+      100,
+
+    mfe_pct:
+      Number.isFinite(
+        mfePct
+      )
+        ? mfePct
+        : null,
+
+    mae_pct:
+      Number.isFinite(
+        maePct
+      )
+        ? maePct
+        : null,
+  };
+}
+
+function medianNumbers(
+  values
+) {
+  const usable =
+    values
+      .map(
+        finiteNumber
+      )
+      .filter(
+        (value) =>
+          value !==
+          null
+      )
+      .sort(
+        (a, b) =>
+          a -
+          b
+      );
+
+  if (
+    !usable.length
+  ) {
+    return null;
+  }
+
+  const middle =
+    Math.floor(
+      usable.length /
+      2
+    );
+
+  return usable.length %
+    2
+      ? usable[
+          middle
+        ]
+      : (
+          usable[
+            middle -
+            1
+          ] +
+          usable[
+            middle
+          ]
+        ) /
+        2;
+}
+
+function summarizeSingleLegResearchTrades(
+  trades
+) {
+  const usable =
+    Array.isArray(
+      trades
+    )
+      ? trades
+      : [];
+
+  const wins =
+    usable.filter(
+      (trade) =>
+        trade.return_pct >
+        0
+    );
+
+  const losses =
+    usable.filter(
+      (trade) =>
+        trade.return_pct <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        trade.return_pct,
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          trade.return_pct,
+        0
+      )
+    );
+
+  let equity =
+    1;
+
+  let peak =
+    1;
+
+  let maxDrawdownPct =
+    0;
+
+  for (
+    const trade of usable
+  ) {
+    equity *=
+      1 +
+      trade.return_pct /
+        100;
+
+    peak =
+      Math.max(
+        peak,
+        equity
+      );
+
+    const drawdown =
+      peak >
+      0
+        ? (
+            equity /
+            peak -
+            1
+          ) *
+          100
+        : 0;
+
+    maxDrawdownPct =
+      Math.min(
+        maxDrawdownPct,
+        drawdown
+      );
+  }
+
+  return {
+    trades:
+      usable.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    win_rate_pct:
+      usable.length
+        ? (
+            wins.length /
+            usable.length
+          ) *
+          100
+        : null,
+
+    average_return_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.return_pct
+        )
+      ),
+
+    median_return_pct:
+      medianNumbers(
+        usable.map(
+          (trade) =>
+            trade.return_pct
+        )
+      ),
+
+    average_pnl_dollars:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.pnl_dollars
+        )
+      ),
+
+    total_pnl_dollars:
+      usable.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          (
+            finiteNumber(
+              trade.pnl_dollars
+            ) ??
+            0
+          ),
+        0
+      ),
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : grossProfit >
+            0
+          ? null
+          : null,
+
+    compounded_return_pct:
+      (
+        equity -
+        1
+      ) *
+      100,
+
+    max_drawdown_pct:
+      maxDrawdownPct,
+
+    average_winner_pct:
+      averageNumbers(
+        wins.map(
+          (trade) =>
+            trade.return_pct
+        )
+      ),
+
+    average_loser_pct:
+      averageNumbers(
+        losses.map(
+          (trade) =>
+            trade.return_pct
+        )
+      ),
+
+    average_mfe_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.mfe_pct
+        )
+      ),
+
+    average_mae_pct:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.mae_pct
+        )
+      ),
+
+    average_hold_sessions:
+      averageNumbers(
+        usable.map(
+          (trade) =>
+            trade.realized_hold_sessions
+        )
+      ),
+
+    loss_50_rate_pct:
+      usable.length
+        ? (
+            usable.filter(
+              (trade) =>
+                trade.return_pct <=
+                -50
+            ).length /
+            usable.length
+          ) *
+          100
+        : null,
+
+    gain_50_rate_pct:
+      usable.length
+        ? (
+            usable.filter(
+              (trade) =>
+                trade.return_pct >=
+                50
+            ).length /
+            usable.length
+          ) *
+          100
+        : null,
+  };
+}
+
+function singleLegResearchScore(
+  summary
+) {
+  if (
+    !summary ||
+    summary.trades <
+      5 ||
+    summary.average_return_pct ===
+      null
+  ) {
+    return null;
+  }
+
+  return (
+    summary.average_return_pct -
+    Math.abs(
+      summary.max_drawdown_pct ??
+      0
+    ) *
+      0.05
+  );
+}
+
+async function buildSingleLegResearchRows({
+  symbol,
+  optionType,
+  lookbackDays,
+  maxSignalsPerProfile,
+  targetDteVariants,
+  moneynessVariants,
+  requiredSignalsVariants,
+  rsiThresholdVariants,
+}) {
+  const end =
+    new Date();
+
+  const requestedStart =
+    new Date(
+      end.getTime() -
+      lookbackDays *
+        24 *
+        60 *
+        60 *
+        1000
+    );
+
+  const fetchStart =
+    new Date(
+      requestedStart.getTime() -
+      120 *
+        24 *
+        60 *
+        60 *
+        1000
+    );
+
+  const common = {
+    start_time:
+      fetchStart.toISOString(),
+
+    end_time:
+      end.toISOString(),
+
+    interval:
+      "day",
+
+    bounds:
+      "regular",
+
+    adjustment_type:
+      "split",
+  };
+
+  const [
+    historicalResult,
+    rsiResult,
+    macdResult,
+  ] =
+    await Promise.all([
+      callRobinhoodTool(
+        "get_equity_historicals",
+        {
+          symbols: [
+            symbol,
+          ],
+
+          ...common,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "rsi",
+
+          ...common,
+
+          output:
+            "series",
+
+          period:
+            14,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "macd",
+
+          ...common,
+
+          output:
+            "series",
+
+          fast_period:
+            12,
+
+          slow_period:
+            26,
+
+          signal_period:
+            9,
+        }
+      ),
+    ]);
+
+  const bars =
+    extractBacktestBars(
+      unwrapRobinhoodToolResult(
+        historicalResult
+      )
+    );
+
+  const rsiSeries =
+    extractBacktestIndicator(
+      unwrapRobinhoodToolResult(
+        rsiResult
+      ),
+      "rsi"
+    );
+
+  const macdSeries =
+    extractBacktestIndicator(
+      unwrapRobinhoodToolResult(
+        macdResult
+      ),
+      "macd"
+    );
+
+  const profiles =
+    [];
+
+  for (
+    const requiredSignals of requiredSignalsVariants
+  ) {
+    for (
+      const rsiThreshold of rsiThresholdVariants
+    ) {
+      profiles.push({
+        id:
+          requiredSignals +
+          "|" +
+          rsiThreshold,
+
+        requiredSignals,
+        rsiThreshold,
+      });
+    }
+  }
+
+  const signalsByProfile =
+    new Map();
+
+  for (
+    const profile of profiles
+  ) {
+    const signals =
+      runDirectionalBacktest({
+        bars,
+        rsiSeries,
+        macdSeries,
+        requestedStart,
+        holdDays:
+          1,
+        costBps:
+          0,
+        nonOverlapping:
+          false,
+        directionMode:
+          optionType ===
+          "call"
+            ? "bullish_only"
+            : "bearish_only",
+        bullishRsi:
+          optionType ===
+          "call"
+            ? profile.rsiThreshold
+            : 55,
+        bearishRsi:
+          optionType ===
+          "put"
+            ? profile.rsiThreshold
+            : 45,
+        requiredSignals:
+          profile.requiredSignals,
+        symbol,
+      })
+        .filter(
+          (trade) =>
+            Date.parse(
+              trade.entry_time
+            ) <
+            end.getTime()
+        );
+
+    signalsByProfile.set(
+      profile.id,
+      sampleEvenly(
+        signals,
+        maxSignalsPerProfile
+      )
+    );
+  }
+
+  const instrumentCache =
+    new Map();
+
+  const contractCache =
+    new Map();
+
+  const specs =
+    [];
+
+  const setupSkips =
+    [];
+
+  async function resolveContract({
+    signal,
+    targetDte,
+    moneyness,
+  }) {
+    const entryDate =
+      new Date(
+        signal.entry_time
+      );
+
+    const entryKey =
+      utcDateKey(
+        entryDate
+      );
+
+    const cacheKey =
+      [
+        entryKey,
+        optionType,
+        targetDte,
+        moneyness,
+      ].join(
+        "|"
+      );
+
+    if (
+      contractCache.has(
+        cacheKey
+      )
+    ) {
+      return contractCache.get(
+        cacheKey
+      );
+    }
+
+    const desiredExpiration =
+      nextFridayOnOrAfter(
+        addUtcDays(
+          entryDate,
+          targetDte
+        )
+      );
+
+    let resolved =
+      null;
+
+    for (
+      let attempt =
+        0;
+      attempt <
+      4;
+      attempt++
+    ) {
+      const expirationDate =
+        addUtcDays(
+          desiredExpiration,
+          attempt *
+            7
+        );
+
+      if (
+        expirationDate.getTime() >=
+        end.getTime()
+      ) {
+        continue;
+      }
+
+      const expiration =
+        utcDateKey(
+          expirationDate
+        );
+
+      const instrumentsKey =
+        symbol +
+        "|" +
+        expiration +
+        "|" +
+        optionType;
+
+      let instruments =
+        instrumentCache.get(
+          instrumentsKey
+        );
+
+      if (!instruments) {
+        instruments =
+          await loadExpiredOptionInstruments({
+            symbol,
+            expiration,
+            type:
+              optionType,
+          });
+
+        instrumentCache.set(
+          instrumentsKey,
+          instruments
+        );
+      }
+
+      const instrument =
+        chooseHistoricalSingleOption({
+          instruments,
+          type:
+            optionType,
+          spot:
+            signal.entry_open,
+          moneyness,
+        });
+
+      if (!instrument) {
+        continue;
+      }
+
+      resolved = {
+        expiration,
+        instrument,
+      };
+
+      break;
+    }
+
+    contractCache.set(
+      cacheKey,
+      resolved
+    );
+
+    return resolved;
+  }
+
+  for (
+    const profile of profiles
+  ) {
+    const signals =
+      signalsByProfile.get(
+        profile.id
+      ) ??
+      [];
+
+    for (
+      const signal of signals
+    ) {
+      for (
+        const targetDte of targetDteVariants
+      ) {
+        for (
+          const moneyness of moneynessVariants
+        ) {
+          const resolved =
+            await resolveContract({
+              signal,
+              targetDte,
+              moneyness,
+            });
+
+          if (!resolved) {
+            setupSkips.push({
+              profile_id:
+                profile.id,
+
+              signal_time:
+                signal.signal_time,
+
+              entry_time:
+                signal.entry_time,
+
+              target_dte:
+                targetDte,
+
+              moneyness,
+
+              reason:
+                "No expired single-leg option contract could be constructed.",
+            });
+
+            continue;
+          }
+
+          specs.push({
+            profile,
+            signal,
+            targetDte,
+            moneyness,
+            expiration:
+              resolved.expiration,
+            instrument:
+              resolved.instrument,
+          });
+        }
+      }
+    }
+  }
+
+  const optionIds =
+    [
+      ...new Set(
+        specs.map(
+          (spec) =>
+            spec.instrument.id
+        )
+      ),
+    ];
+
+  const optionHistoryById =
+    new Map();
+
+  for (
+    let index =
+      0;
+    index <
+    optionIds.length;
+    index +=
+      10
+  ) {
+    const batch =
+      optionIds.slice(
+        index,
+        index +
+          10
+      );
+
+    const historical =
+      await callRobinhoodTool(
+        "get_option_historicals",
+        {
+          instrument_ids:
+            batch,
+
+          start_time:
+            fetchStart.toISOString(),
+
+          end_time:
+            end.toISOString(),
+
+          interval:
+            "day",
+
+          bounds:
+            "regular",
+        }
+      );
+
+    const payload =
+      unwrapRobinhoodToolResult(
+        historical
+      );
+
+    const results =
+      extractOptionHistoricalResults(
+        payload
+      );
+
+    for (
+      const result of results
+    ) {
+      optionHistoryById.set(
+        result.instrument_id,
+        normalizeOptionBars(
+          result
+        )
+      );
+    }
+  }
+
+  const rows =
+    [];
+
+  const replaySkips =
+    [];
+
+  for (
+    const spec of specs
+  ) {
+    const optionBars =
+      optionHistoryById.get(
+        spec.instrument.id
+      ) ??
+      [];
+
+    const entryKey =
+      utcDateKey(
+        spec.signal.entry_time
+      );
+
+    const entryBar =
+      optionBars.find(
+        (bar) =>
+          bar.date ===
+          entryKey
+      );
+
+    if (
+      !entryBar ||
+      entryBar.open <=
+        0
+    ) {
+      replaySkips.push({
+        profile_id:
+          spec.profile.id,
+
+        signal_time:
+          spec.signal.signal_time,
+
+        entry_time:
+          spec.signal.entry_time,
+
+        target_dte:
+          spec.targetDte,
+
+        moneyness:
+          spec.moneyness,
+
+        reason:
+          "Historical option entry bar was unavailable.",
+      });
+
+      continue;
+    }
+
+    const expirationDate =
+      new Date(
+        spec.expiration +
+        "T00:00:00Z"
+      );
+
+    const entryDate =
+      new Date(
+        spec.signal.entry_time
+      );
+
+    const entryDte =
+      Math.round(
+        (
+          expirationDate.getTime() -
+          entryDate.getTime()
+        ) /
+          (
+            24 *
+            60 *
+            60 *
+            1000
+          )
+      );
+
+    rows.push({
+      id:
+        [
+          spec.profile.id,
+          spec.signal.signal_time,
+          spec.targetDte,
+          spec.moneyness,
+        ].join(
+          "|"
+        ),
+
+      symbol,
+      option_type:
+        optionType,
+
+      profile_id:
+        spec.profile.id,
+
+      required_signals:
+        spec.profile.requiredSignals,
+
+      rsi_threshold:
+        spec.profile.rsiThreshold,
+
+      signal_time:
+        spec.signal.signal_time,
+
+      entry_time:
+        spec.signal.entry_time,
+
+      rsi:
+        spec.signal.rsi,
+
+      macd_histogram:
+        spec.signal.macd_histogram,
+
+      signal_change_pct:
+        spec.signal.signal_change_pct,
+
+      signal_score:
+        optionType ===
+        "call"
+          ? spec.signal.bullish_score
+          : spec.signal.bearish_score,
+
+      target_dte:
+        spec.targetDte,
+
+      moneyness:
+        spec.moneyness,
+
+      expiration:
+        spec.expiration,
+
+      entry_dte:
+        entryDte,
+
+      instrument_id:
+        spec.instrument.id,
+
+      strike:
+        spec.instrument.strike,
+
+      underlying_entry:
+        spec.signal.entry_open,
+
+      entry_price:
+        entryBar.open,
+
+      option_bars:
+        optionBars.filter(
+          (bar) =>
+            bar.date >=
+              entryKey &&
+            bar.date <=
+              spec.expiration
+        ),
+    });
+  }
+
+  const entryDates =
+    [
+      ...new Set(
+        rows
+          .map(
+            (row) =>
+              utcDateKey(
+                row.signal_time
+              )
+          )
+          .filter(
+            Boolean
+          )
+      ),
+    ].sort();
+
+  return {
+    symbol,
+    optionType,
+    requestedStart,
+    end,
+    rows,
+    entryDates,
+
+    coverage: {
+      unique_option_contracts:
+        optionIds.length,
+
+      base_rows:
+        rows.length,
+
+      setup_skips:
+        setupSkips.length,
+
+      replay_skips:
+        replaySkips.length,
+
+      replayable_signal_dates:
+        entryDates.length,
+    },
+
+    skipExamples: [
+      ...setupSkips,
+      ...replaySkips,
+    ].slice(
+      0,
+      40
+    ),
+  };
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -18687,6 +20101,799 @@ app.post(
 
         paper_only:
           true,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+app.post(
+  "/scanner/single-leg-research",
+
+  async (req, res) => {
+    try {
+      const symbol =
+        normalizeTicker(
+          req.body
+            ?.symbol
+        );
+
+      const optionType =
+        req.body
+          ?.optionType ===
+        "put"
+          ? "put"
+          : "call";
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          180,
+          730,
+          730
+        );
+
+      const maxSignalsPerProfile =
+        clampNumber(
+          req.body
+            ?.maxSignalsPerProfile,
+          20,
+          100,
+          80
+        );
+
+      const targetDteVariants = [
+        7,
+        9,
+        14,
+        21,
+        30,
+      ];
+
+      const moneynessVariants = [
+        "itm2",
+        "atm",
+        "otm2",
+      ];
+
+      const requiredSignalsVariants = [
+        2,
+        3,
+      ];
+
+      const rsiThresholdVariants =
+        optionType ===
+        "call"
+          ? [
+              50,
+              55,
+              60,
+            ]
+          : [
+              50,
+              45,
+              40,
+            ];
+
+      const maxHoldVariants = [
+        1,
+        3,
+        5,
+        7,
+        10,
+      ];
+
+      const profitTargetVariants = [
+        null,
+        20,
+        30,
+        50,
+        75,
+        100,
+      ];
+
+      const stopLossVariants = [
+        null,
+        20,
+        30,
+        40,
+        50,
+      ];
+
+      const dataset =
+        await buildSingleLegResearchRows({
+          symbol,
+          optionType,
+          lookbackDays,
+          maxSignalsPerProfile,
+          targetDteVariants,
+          moneynessVariants,
+          requiredSignalsVariants,
+          rsiThresholdVariants,
+        });
+
+      const {
+        rows,
+        entryDates,
+        coverage,
+        skipExamples,
+      } = dataset;
+
+      if (
+        entryDates.length <
+        15
+      ) {
+        return res.json({
+          generated_at:
+            new Date().toISOString(),
+
+          engine:
+            "single_leg_historical_research_v1",
+
+          symbol,
+          option_type:
+            optionType,
+
+          coverage,
+
+          selected_candidate:
+            null,
+
+          baseline:
+            null,
+
+          top_candidates:
+            [],
+
+          methodology: {
+            caution:
+              "Not enough replayable signal dates were available for a meaningful chronological research split.",
+          },
+
+          skip_examples:
+            skipExamples,
+        });
+      }
+
+      const trainEndIndex =
+        Math.max(
+          1,
+          Math.floor(
+            entryDates.length *
+            0.6
+          )
+        );
+
+      const validationEndIndex =
+        Math.max(
+          trainEndIndex +
+            1,
+          Math.floor(
+            entryDates.length *
+            0.8
+          )
+        );
+
+      const trainDates =
+        entryDates.slice(
+          0,
+          trainEndIndex
+        );
+
+      const validationDates =
+        entryDates.slice(
+          trainEndIndex,
+          validationEndIndex
+        );
+
+      const testDates =
+        entryDates.slice(
+          validationEndIndex
+        );
+
+      const trainDateSet =
+        new Set(
+          trainDates
+        );
+
+      const validationDateSet =
+        new Set(
+          validationDates
+        );
+
+      const testDateSet =
+        new Set(
+          testDates
+        );
+
+      const candidates =
+        [];
+
+      const profileIds =
+        [
+          ...new Set(
+            rows.map(
+              (row) =>
+                row.profile_id
+            )
+          ),
+        ];
+
+      for (
+        const profileId of profileIds
+      ) {
+        const profileRows =
+          rows.filter(
+            (row) =>
+              row.profile_id ===
+              profileId
+          );
+
+        const profileExample =
+          profileRows[0];
+
+        if (!profileExample) {
+          continue;
+        }
+
+        for (
+          const targetDte of targetDteVariants
+        ) {
+          for (
+            const moneyness of moneynessVariants
+          ) {
+            const entryRows =
+              profileRows.filter(
+                (row) =>
+                  row.target_dte ===
+                    targetDte &&
+                  row.moneyness ===
+                    moneyness
+              );
+
+            for (
+              const maxHoldSessions of maxHoldVariants
+            ) {
+              for (
+                const profitTargetPct of profitTargetVariants
+              ) {
+                for (
+                  const stopLossPct of stopLossVariants
+                ) {
+                  const simulated =
+                    entryRows
+                      .map(
+                        (row) =>
+                          simulateHistoricalSingleLegExit({
+                            row,
+                            maxHoldSessions,
+                            profitTargetPct,
+                            stopLossPct,
+                          })
+                      )
+                      .filter(
+                        Boolean
+                      );
+
+                  const trainTrades =
+                    simulated.filter(
+                      (trade) =>
+                        trainDateSet.has(
+                          utcDateKey(
+                            trade.signal_time
+                          )
+                        )
+                    );
+
+                  const validationTrades =
+                    simulated.filter(
+                      (trade) =>
+                        validationDateSet.has(
+                          utcDateKey(
+                            trade.signal_time
+                          )
+                        )
+                    );
+
+                  const testTrades =
+                    simulated.filter(
+                      (trade) =>
+                        testDateSet.has(
+                          utcDateKey(
+                            trade.signal_time
+                          )
+                        )
+                    );
+
+                  const train =
+                    summarizeSingleLegResearchTrades(
+                      trainTrades
+                    );
+
+                  const validation =
+                    summarizeSingleLegResearchTrades(
+                      validationTrades
+                    );
+
+                  const test =
+                    summarizeSingleLegResearchTrades(
+                      testTrades
+                    );
+
+                  if (
+                    train.trades <
+                      12 ||
+                    validation.trades <
+                      5 ||
+                    (
+                      validation.average_return_pct ??
+                      0
+                    ) <=
+                      0 ||
+                    (
+                      validation.profit_factor ??
+                      0
+                    ) <
+                      1.1
+                  ) {
+                    continue;
+                  }
+
+                  const score =
+                    singleLegResearchScore(
+                      validation
+                    );
+
+                  if (
+                    score ===
+                    null
+                  ) {
+                    continue;
+                  }
+
+                  candidates.push({
+                    id:
+                      [
+                        profileId,
+                        targetDte,
+                        moneyness,
+                        maxHoldSessions,
+                        profitTargetPct ??
+                          "none",
+                        stopLossPct ??
+                          "none",
+                      ].join(
+                        "|"
+                      ),
+
+                    parameters: {
+                      option_type:
+                        optionType,
+
+                      required_signals:
+                        profileExample.required_signals,
+
+                      rsi_threshold:
+                        profileExample.rsi_threshold,
+
+                      target_dte:
+                        targetDte,
+
+                      moneyness,
+
+                      moneyness_label:
+                        singleLegMoneynessLabel(
+                          moneyness
+                        ),
+
+                      max_hold_sessions:
+                        maxHoldSessions,
+
+                      profit_target_pct:
+                        profitTargetPct,
+
+                      stop_loss_pct:
+                        stopLossPct,
+                    },
+
+                    train,
+                    validation,
+                    test,
+
+                    validation_score:
+                      score,
+
+                    test_trades:
+                      testTrades,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      candidates.sort(
+        (a, b) =>
+          b.validation_score -
+            a.validation_score ||
+          (
+            b.validation
+              .profit_factor ??
+            -Infinity
+          ) -
+            (
+              a.validation
+                .profit_factor ??
+              -Infinity
+            )
+      );
+
+      const selected =
+        candidates[0] ??
+        null;
+
+      const baselineRsi =
+        optionType ===
+        "call"
+          ? 55
+          : 45;
+
+      const baselineRows =
+        rows.filter(
+          (row) =>
+            row.required_signals ===
+              2 &&
+            row.rsi_threshold ===
+              baselineRsi &&
+            row.target_dte ===
+              9 &&
+            row.moneyness ===
+              "atm"
+        )
+          .map(
+            (row) =>
+              simulateHistoricalSingleLegExit({
+                row,
+                maxHoldSessions:
+                  5,
+                profitTargetPct:
+                  null,
+                stopLossPct:
+                  null,
+              })
+          )
+          .filter(
+            Boolean
+          );
+
+      const baseline = {
+        parameters: {
+          option_type:
+            optionType,
+
+          required_signals:
+            2,
+
+          rsi_threshold:
+            baselineRsi,
+
+          target_dte:
+            9,
+
+          moneyness:
+            "atm",
+
+          moneyness_label:
+            "ATM",
+
+          max_hold_sessions:
+            5,
+
+          profit_target_pct:
+            null,
+
+          stop_loss_pct:
+            null,
+        },
+
+        train:
+          summarizeSingleLegResearchTrades(
+            baselineRows.filter(
+              (trade) =>
+                trainDateSet.has(
+                  utcDateKey(
+                    trade.signal_time
+                  )
+                )
+            )
+          ),
+
+        validation:
+          summarizeSingleLegResearchTrades(
+            baselineRows.filter(
+              (trade) =>
+                validationDateSet.has(
+                  utcDateKey(
+                    trade.signal_time
+                  )
+                )
+            )
+          ),
+
+        test:
+          summarizeSingleLegResearchTrades(
+            baselineRows.filter(
+              (trade) =>
+                testDateSet.has(
+                  utcDateKey(
+                    trade.signal_time
+                  )
+                )
+            )
+          ),
+      };
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "single_leg_historical_research_v1",
+
+        symbol,
+
+        option_type:
+          optionType,
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          max_signals_per_profile:
+            maxSignalsPerProfile,
+        },
+
+        search_space: {
+          target_dte:
+            targetDteVariants,
+
+          moneyness:
+            moneynessVariants,
+
+          required_signals:
+            requiredSignalsVariants,
+
+          rsi_thresholds:
+            rsiThresholdVariants,
+
+          max_hold_sessions:
+            maxHoldVariants,
+
+          profit_target_pct:
+            profitTargetVariants,
+
+          stop_loss_pct:
+            stopLossVariants,
+
+          eligible_candidate_count:
+            candidates.length,
+        },
+
+        methodology: {
+          entry:
+            "Signals are evaluated on completed daily bars and entered on the next regular-session option open. Calls use bullish signals; puts use bearish signals.",
+
+          contract:
+            "The research searches target DTE and approximately 2% ITM, ATM, or 2% OTM strikes using expired Robinhood contracts.",
+
+          exit:
+            "Daily option OHLC bars test profit targets, stop losses, and maximum holding sessions. If both stop and target are touched in one daily bar, the stop is assumed first.",
+
+          selection:
+            "Chronological replayable signal dates are split 60% training, 20% validation, and 20% untouched test. Candidate selection uses validation data only.",
+
+          eligibility:
+            "Candidates require at least 12 training trades, 5 validation trades, positive validation average return, and validation profit factor of at least 1.10.",
+
+          caution:
+            "Historical option trade-price OHLC is a fill proxy. Historical synchronized bid/ask quotes and historical Greeks are not reconstructed.",
+        },
+
+        split: {
+          train_signal_dates:
+            trainDates.length,
+
+          validation_signal_dates:
+            validationDates.length,
+
+          test_signal_dates:
+            testDates.length,
+
+          train_start:
+            trainDates[0] ??
+            null,
+
+          train_end:
+            trainDates[
+              trainDates.length -
+              1
+            ] ??
+            null,
+
+          validation_start:
+            validationDates[0] ??
+            null,
+
+          validation_end:
+            validationDates[
+              validationDates.length -
+              1
+            ] ??
+            null,
+
+          test_start:
+            testDates[0] ??
+            null,
+
+          test_end:
+            testDates[
+              testDates.length -
+              1
+            ] ??
+            null,
+        },
+
+        coverage,
+
+        selected_candidate:
+          selected
+            ? {
+                id:
+                  selected.id,
+
+                parameters:
+                  selected.parameters,
+
+                train:
+                  selected.train,
+
+                validation:
+                  selected.validation,
+
+                test:
+                  selected.test,
+
+                validation_score:
+                  selected.validation_score,
+              }
+            : null,
+
+        baseline,
+
+        top_candidates:
+          candidates.slice(
+            0,
+            20
+          ).map(
+            (candidate) => ({
+              id:
+                candidate.id,
+
+              parameters:
+                candidate.parameters,
+
+              train:
+                candidate.train,
+
+              validation:
+                candidate.validation,
+
+              test:
+                candidate.test,
+
+              validation_score:
+                candidate.validation_score,
+            })
+          ),
+
+        selected_test_dataset:
+          selected
+            ? selected.test_trades.map(
+                (trade) => ({
+                  symbol:
+                    trade.symbol,
+
+                  option_type:
+                    trade.option_type,
+
+                  signal_time:
+                    trade.signal_time,
+
+                  entry_time:
+                    trade.entry_time,
+
+                  exit_date:
+                    trade.exit_date,
+
+                  required_signals:
+                    trade.required_signals,
+
+                  rsi_threshold:
+                    trade.rsi_threshold,
+
+                  rsi:
+                    trade.rsi,
+
+                  macd_histogram:
+                    trade.macd_histogram,
+
+                  signal_change_pct:
+                    trade.signal_change_pct,
+
+                  target_dte:
+                    trade.target_dte,
+
+                  entry_dte:
+                    trade.entry_dte,
+
+                  moneyness:
+                    trade.moneyness,
+
+                  expiration:
+                    trade.expiration,
+
+                  strike:
+                    trade.strike,
+
+                  underlying_entry:
+                    trade.underlying_entry,
+
+                  entry_price:
+                    trade.entry_price,
+
+                  max_hold_sessions:
+                    trade.max_hold_sessions,
+
+                  profit_target_pct:
+                    trade.profit_target_pct,
+
+                  stop_loss_pct:
+                    trade.stop_loss_pct,
+
+                  exit_price:
+                    trade.exit_price,
+
+                  exit_reason:
+                    trade.exit_reason,
+
+                  realized_hold_sessions:
+                    trade.realized_hold_sessions,
+
+                  return_pct:
+                    trade.return_pct,
+
+                  pnl_dollars:
+                    trade.pnl_dollars,
+
+                  mfe_pct:
+                    trade.mfe_pct,
+
+                  mae_pct:
+                    trade.mae_pct,
+                })
+              )
+            : [],
+
+        skip_examples:
+          skipExamples,
       });
 
     } catch (error) {
