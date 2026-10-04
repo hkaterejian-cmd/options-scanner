@@ -12612,7 +12612,7 @@ app.post(
             ?.trainCoverageDates,
           12,
           60,
-          20
+          60
         );
 
       const validationCoverageDates =
@@ -12621,7 +12621,7 @@ app.post(
             ?.validationCoverageDates,
           6,
           30,
-          8
+          24
         );
 
       const testCoverageDates =
@@ -12630,7 +12630,7 @@ app.post(
             ?.testCoverageDates,
           4,
           24,
-          6
+          8
         );
 
       const maxSignalsPerHold =
@@ -12639,7 +12639,7 @@ app.post(
             ?.maxSignalsPerHold,
           20,
           60,
-          40
+          60
         );
 
       const holdVariants = [
