@@ -9383,6 +9383,779 @@ function OptionReplayResearchPanel({
   );
 }
 
+
+/*
+  =========================================================
+  OPTION-SPREAD WALK-FORWARD
+  =========================================================
+*/
+
+function OptionSpreadWalkForwardPanel({
+  tickers,
+  settings,
+  setSettings,
+  result,
+  loading,
+  error,
+  onRun,
+  connected,
+}) {
+  const summary =
+    result?.summary ??
+    {};
+
+  const selectedOos =
+    summary.selected_oos ??
+    {};
+
+  const baselineOos =
+    summary.baseline_oos ??
+    {};
+
+  const folds =
+    Array.isArray(
+      result?.folds
+    )
+      ? result.folds
+      : [];
+
+  const selectionFrequency =
+    Array.isArray(
+      result?.selection_frequency
+    )
+      ? result.selection_frequency
+      : [];
+
+  const dataset =
+    Array.isArray(
+      result?.selected_oos_dataset
+    )
+      ? result.selected_oos_dataset
+      : [];
+
+  const coverage =
+    result?.coverage ??
+    {};
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  function directionLabel(
+    value
+  ) {
+    if (
+      value ===
+      "bullish_only"
+    ) {
+      return "Bullish only";
+    }
+
+    if (
+      value ===
+      "bearish_only"
+    ) {
+      return "Bearish only";
+    }
+
+    return "Both";
+  }
+
+  function downloadDataset() {
+    if (!dataset.length) {
+      return;
+    }
+
+    const headers =
+      Object.keys(
+        dataset[0]
+      );
+
+    const esc =
+      (value) => {
+        if (
+          value ===
+            null ||
+          value ===
+            undefined
+        ) {
+          return "";
+        }
+
+        const text =
+          String(
+            value
+          );
+
+        if (
+          text.includes(",") ||
+          text.includes('"') ||
+          text.includes("\n")
+        ) {
+          return (
+            '"' +
+            text.replaceAll(
+              '"',
+              '""'
+            ) +
+            '"'
+          );
+        }
+
+        return text;
+      };
+
+    const csv = [
+      headers.join(","),
+      ...dataset.map(
+        (row) =>
+          headers
+            .map(
+              (header) =>
+                esc(
+                  row[
+                    header
+                  ]
+                )
+            )
+            .join(",")
+      ),
+    ].join("\n");
+
+    const blob =
+      new Blob(
+        [csv],
+        {
+          type:
+            "text/csv;charset=utf-8",
+        }
+      );
+
+    const url =
+      URL.createObjectURL(
+        blob
+      );
+
+    const link =
+      document.createElement(
+        "a"
+      );
+
+    link.href =
+      url;
+
+    link.download =
+      "option-spread-walk-forward-oos.csv";
+
+    document.body.appendChild(
+      link
+    );
+
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      url
+    );
+  }
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-teal-500/20 bg-teal-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-teal-400">
+              Option-spread walk-forward
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Re-select DTE, hold, direction, and spread width using only prior option history
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Each fold chooses a vertical-spread structure from prior expired-option replays, then measures the next unseen option period.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              downloadDataset
+            }
+            disabled={
+              !dataset.length
+            }
+            className="rounded border border-cyan-400/40 px-3 py-2 text-[9px] uppercase tracking-widest text-cyan-300 disabled:opacity-30"
+          >
+            Download OOS Option CSV
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <label className="rounded-lg border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+              Ticker
+            </div>
+
+            <select
+              value={
+                settings.symbol
+              }
+              onChange={(
+                event
+              ) =>
+                setSettings(
+                  (current) => ({
+                    ...current,
+
+                    symbol:
+                      event.target.value,
+                  })
+                )
+              }
+              className="mt-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-white"
+            >
+              {tickers.map(
+                (ticker) => (
+                  <option
+                    key={
+                      ticker
+                    }
+                    value={
+                      ticker
+                    }
+                  >
+                    {ticker}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+
+          {[
+            ["lookbackDays", "Lookback days"],
+            ["trainDays", "Initial train"],
+            ["validationDays", "Validation"],
+            ["testDays", "Test"],
+            ["maxSignalsPerHold", "Max signals / hold"],
+          ].map(
+            ([
+              key,
+              label,
+            ]) => (
+              <label
+                key={
+                  key
+                }
+                className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+              >
+                <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                  {label}
+                </div>
+
+                <input
+                  type="number"
+                  min="1"
+                  value={
+                    settings[
+                      key
+                    ]
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setSettings(
+                      (current) => ({
+                        ...current,
+
+                        [key]:
+                          event.target.value,
+                      })
+                    )
+                  }
+                  className="mt-2 w-full bg-transparent font-mono text-sm text-white outline-none"
+                />
+              </label>
+            )
+          )}
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={
+              onRun
+            }
+            disabled={
+              loading ||
+              !connected ||
+              !settings.symbol
+            }
+            className="rounded border border-teal-400/50 bg-teal-400/10 px-4 py-2.5 text-[10px] font-bold text-teal-300 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            {loading
+              ? "RUNNING OPTION WALK-FORWARD..."
+              : connected
+                ? "RUN OPTION WALK-FORWARD"
+                : "CONNECT ROBINHOOD"}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Option walk-forward error: {error}
+          </div>
+        )}
+
+        {!error &&
+          result && (
+          <>
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-3 text-[9px] leading-relaxed text-zinc-500">
+              {result.methodology?.selection}{" "}
+              {result.methodology?.rolling}{" "}
+              <span className="text-amber-300">
+                {result.methodology?.pricing}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              {[
+                ["Folds", summary.completed_folds ?? 0],
+                ["Positive folds", pct(summary.positive_test_fold_rate)],
+                ["OOS trades", selectedOos.trades ?? 0],
+                ["OOS win rate", pct(selectedOos.win_rate_pct)],
+                ["OOS avg return", pct(selectedOos.average_return_on_debit_pct)],
+                ["OOS P/L", dollar(selectedOos.total_pnl_dollars)],
+                ["OOS PF", ratio(selectedOos.profit_factor)],
+                ["OOS Max DD", dollar(selectedOos.max_drawdown_dollars)],
+              ].map(
+                ([
+                  label,
+                  value,
+                ]) => (
+                  <div
+                    key={
+                      label
+                    }
+                    className="rounded-lg border border-zinc-800 bg-black/25 p-3"
+                  >
+                    <div className="text-[9px] uppercase tracking-widest text-zinc-600">
+                      {label}
+                    </div>
+
+                    <div className="mt-1 font-mono text-sm font-bold text-zinc-100">
+                      {value}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-teal-500/20 bg-teal-500/[0.025] p-3">
+                <div className="text-[9px] uppercase tracking-widest text-teal-400">
+                  Walk-forward selected option structures
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Stat
+                    label="Trades"
+                    value={
+                      selectedOos.trades ??
+                      0
+                    }
+                  />
+
+                  <Stat
+                    label="Avg Return"
+                    value={pct(
+                      selectedOos.average_return_on_debit_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="Avg P/L"
+                    value={dollar(
+                      selectedOos.average_pnl_dollars
+                    )}
+                  />
+
+                  <Stat
+                    label="Profit Factor"
+                    value={ratio(
+                      selectedOos.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Max DD"
+                    value={dollar(
+                      selectedOos.max_drawdown_dollars
+                    )}
+                  />
+
+                  <Stat
+                    label="Avg Debit"
+                    value={
+                      toNumber(
+                        selectedOos.average_entry_debit
+                      ) !==
+                      null
+                        ? "$" +
+                          Number(
+                            selectedOos.average_entry_debit
+                          ).toFixed(
+                            2
+                          )
+                        : "—"
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.025] p-3">
+                <div className="text-[9px] uppercase tracking-widest text-violet-400">
+                  Fixed option baseline OOS
+                </div>
+
+                <div className="mt-1 text-[9px] text-zinc-600">
+                  Both directions · 5 sessions · target 9 DTE · short 4% OTM
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Stat
+                    label="Trades"
+                    value={
+                      baselineOos.trades ??
+                      0
+                    }
+                  />
+
+                  <Stat
+                    label="Avg Return"
+                    value={pct(
+                      baselineOos.average_return_on_debit_pct
+                    )}
+                  />
+
+                  <Stat
+                    label="P/L"
+                    value={dollar(
+                      baselineOos.total_pnl_dollars
+                    )}
+                  />
+
+                  <Stat
+                    label="Profit Factor"
+                    value={ratio(
+                      baselineOos.profit_factor
+                    )}
+                  />
+
+                  <Stat
+                    label="Max DD"
+                    value={dollar(
+                      baselineOos.max_drawdown_dollars
+                    )}
+                  />
+
+                  <Stat
+                    label="Win Rate"
+                    value={pct(
+                      baselineOos.win_rate_pct
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat
+                label="Unique Option Contracts"
+                value={
+                  coverage.unique_option_contracts ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Replay Rows"
+                value={
+                  coverage.replay_rows ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Setup Skips"
+                value={
+                  coverage.setup_skips ??
+                  0
+                }
+              />
+
+              <Stat
+                label="Replay Skips"
+                value={
+                  coverage.replay_skips ??
+                  0
+                }
+              />
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+                Fold-by-fold unseen option results
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                <table className="min-w-[1500px] w-full text-[9px] font-mono">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-600">
+                      <th className="px-3 py-2 text-right">Fold</th>
+                      <th className="px-3 py-2 text-left">Test Window</th>
+                      <th className="px-3 py-2 text-left">Selected</th>
+                      <th className="px-3 py-2 text-right">Val N</th>
+                      <th className="px-3 py-2 text-right">Val Avg</th>
+                      <th className="px-3 py-2 text-right">Val PF</th>
+                      <th className="px-3 py-2 text-right">Test N</th>
+                      <th className="px-3 py-2 text-right">Test Avg</th>
+                      <th className="px-3 py-2 text-right">Test PF</th>
+                      <th className="px-3 py-2 text-right">Test P/L</th>
+                      <th className="px-3 py-2 text-right">Baseline Avg</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {folds.map(
+                      (fold) => {
+                        const candidate =
+                          fold.selected_candidate;
+
+                        const params =
+                          candidate?.parameters;
+
+                        return (
+                          <tr
+                            key={
+                              fold.fold
+                            }
+                            className="border-b border-zinc-900"
+                          >
+                            <td className="px-3 py-2 text-right">
+                              {fold.fold}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {new Date(
+                                fold.test_start
+                              ).toLocaleDateString()}{" "}
+                              →{" "}
+                              {new Date(
+                                fold.test_end
+                              ).toLocaleDateString()}
+                            </td>
+
+                            <td className="px-3 py-2 text-left">
+                              {candidate
+                                ? directionLabel(
+                                    params?.direction_mode
+                                  ) +
+                                  " · " +
+                                  params?.hold_sessions +
+                                  "d · " +
+                                  params?.target_dte +
+                                  " DTE · " +
+                                  params?.short_distance_pct +
+                                  "% OTM"
+                                : "No eligible structure"}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {candidate?.validation?.trades ?? 0}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                candidate?.validation?.average_return_on_debit_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {ratio(
+                                candidate?.validation?.profit_factor
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {candidate?.test?.trades ?? 0}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {pct(
+                                candidate?.test?.average_return_on_debit_pct
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {ratio(
+                                candidate?.test?.profit_factor
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {dollar(
+                                candidate?.test?.total_pnl_dollars
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right text-violet-300">
+                              {pct(
+                                fold.baseline_test?.average_return_on_debit_pct
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Option-structure selection frequency
+                </div>
+
+                <div className="mt-2 space-y-2">
+                  {selectionFrequency.map(
+                    (row) => (
+                      <div
+                        key={
+                          row.id
+                        }
+                        className="flex items-center justify-between gap-3 border-b border-zinc-900 pb-2 text-[9px]"
+                      >
+                        <span className="font-mono text-zinc-300">
+                          {directionLabel(
+                            row.parameters?.direction_mode
+                          )}{" "}
+                          · {row.parameters?.hold_sessions}d · {row.parameters?.target_dte} DTE · {row.parameters?.short_distance_pct}% OTM
+                        </span>
+
+                        <span className="font-mono text-teal-300">
+                          {row.count} fold{row.count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.025] p-3">
+                <div className="text-[9px] uppercase tracking-widest text-cyan-400">
+                  Unseen option learning dataset
+                </div>
+
+                <div className="mt-1 text-sm font-bold text-white">
+                  {dataset.length} option-spread row{dataset.length === 1 ? "" : "s"}
+                </div>
+
+                <div className="mt-2 text-[9px] leading-relaxed text-zinc-500">
+                  Every row is from a walk-forward test window after the structure was selected using only earlier option history. This is the clean option-specific dataset for later model evaluation.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    downloadDataset
+                  }
+                  disabled={
+                    !dataset.length
+                  }
+                  className="mt-3 rounded border border-cyan-400/40 px-3 py-1.5 text-[9px] uppercase tracking-widest text-cyan-300 disabled:opacity-30"
+                >
+                  Download CSV
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+              A structure must have at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10 before it can be selected. This is deliberately stricter than the single-split Option Research Lab.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -10106,6 +10879,54 @@ export default function OptionsScanner() {
 
       maxSignalsPerHold:
         24,
+    });
+
+  const [
+    optionWalkForwardOpen,
+    setOptionWalkForwardOpen,
+  ] =
+    useState(false);
+
+  const [
+    optionWalkForwardResult,
+    setOptionWalkForwardResult,
+  ] =
+    useState(null);
+
+  const [
+    optionWalkForwardLoading,
+    setOptionWalkForwardLoading,
+  ] =
+    useState(false);
+
+  const [
+    optionWalkForwardError,
+    setOptionWalkForwardError,
+  ] =
+    useState("");
+
+  const [
+    optionWalkForwardSettings,
+    setOptionWalkForwardSettings,
+  ] =
+    useState({
+      symbol:
+        "PLTR",
+
+      lookbackDays:
+        730,
+
+      trainDays:
+        365,
+
+      validationDays:
+        120,
+
+      testDays:
+        60,
+
+      maxSignalsPerHold:
+        40,
     });
 
   const scanInProgressRef =
@@ -11405,6 +12226,88 @@ export default function OptionsScanner() {
       ]
     );
 
+  const runOptionWalkForward =
+    useCallback(
+      async () => {
+        setOptionWalkForwardLoading(
+          true
+        );
+
+        setOptionWalkForwardError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/option-replay-walk-forward",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    symbol:
+                      optionWalkForwardSettings.symbol,
+
+                    lookbackDays:
+                      Number(
+                        optionWalkForwardSettings.lookbackDays
+                      ),
+
+                    trainDays:
+                      Number(
+                        optionWalkForwardSettings.trainDays
+                      ),
+
+                    validationDays:
+                      Number(
+                        optionWalkForwardSettings.validationDays
+                      ),
+
+                    testDays:
+                      Number(
+                        optionWalkForwardSettings.testDays
+                      ),
+
+                    maxSignalsPerHold:
+                      Number(
+                        optionWalkForwardSettings.maxSignalsPerHold
+                      ),
+                  }),
+              }
+            );
+
+          setOptionWalkForwardResult(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setOptionWalkForwardError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setOptionWalkForwardLoading(
+            false
+          );
+        }
+      },
+      [
+        optionWalkForwardSettings,
+      ]
+    );
+
   /*
     =======================================================
     STATUS
@@ -12164,6 +13067,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setOptionWalkForwardOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                optionWalkForwardOpen
+                  ? "rounded-lg border border-teal-500/40 bg-teal-500/10 px-3 py-2 text-xs font-mono text-teal-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Option Walk-Forward
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -12835,6 +13755,37 @@ Do not invent missing values.`
           }
           onRun={
             runOptionResearch
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* OPTION-SPREAD WALK-FORWARD */}
+
+      {optionWalkForwardOpen && (
+        <OptionSpreadWalkForwardPanel
+          tickers={
+            tickers
+          }
+          settings={
+            optionWalkForwardSettings
+          }
+          setSettings={
+            setOptionWalkForwardSettings
+          }
+          result={
+            optionWalkForwardResult
+          }
+          loading={
+            optionWalkForwardLoading
+          }
+          error={
+            optionWalkForwardError
+          }
+          onRun={
+            runOptionWalkForward
           }
           connected={
             robinhoodStatus.connected
