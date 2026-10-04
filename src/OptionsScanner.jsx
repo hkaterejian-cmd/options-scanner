@@ -10850,6 +10850,671 @@ function OptionExecutionStressPanel({
   );
 }
 
+
+/*
+  =========================================================
+  FORWARD PAPER VALIDATOR
+  =========================================================
+*/
+
+function ForwardPaperValidatorPanel({
+  status,
+  loading,
+  error,
+  connected,
+  onTick,
+  onToggle,
+}) {
+  const settings =
+    status?.settings ??
+    {};
+
+  const summary =
+    status?.summary ??
+    {};
+
+  const snapshot =
+    status?.lastSnapshot ??
+    null;
+
+  const trades =
+    Array.isArray(
+      status?.trades
+    )
+      ? status.trades
+      : [];
+
+  const openTrades =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closedTrades =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const pct =
+    (
+      value,
+      digits = 1
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : ""
+          ) +
+          n.toFixed(
+            digits
+          ) +
+          "%";
+    };
+
+  const dollar =
+    (
+      value,
+      digits = 0
+    ) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : (
+            n >=
+            0
+              ? "+"
+              : "-"
+          ) +
+          "$" +
+          Math.abs(
+            n
+          ).toFixed(
+            digits
+          );
+    };
+
+  const ratio =
+    (value) => {
+      const n =
+        toNumber(
+          value
+        );
+
+      return n ===
+        null
+        ? "—"
+        : n.toFixed(
+            2
+          ) +
+          "×";
+    };
+
+  return (
+    <section className="border-b border-zinc-800 bg-zinc-950 px-6 py-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-emerald-400">
+              Forward paper validator
+            </div>
+
+            <div className="mt-1 text-lg font-bold text-white">
+              Collect live PLTR spread observations without submitting orders
+            </div>
+
+            <div className="mt-1 text-[10px] text-zinc-500">
+              Fixed baseline: both directions · 5-session hold · target 9 DTE · short leg about 4% OTM · quarter-spread paper fills.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                onToggle(
+                  !settings.enabled
+                )
+              }
+              disabled={
+                loading ||
+                !connected
+              }
+              className={
+                settings.enabled
+                  ? "rounded border border-red-500/35 bg-red-500/10 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-red-300 disabled:opacity-30"
+                  : "rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-emerald-300 disabled:opacity-30"
+              }
+            >
+              {settings.enabled
+                ? "Disable Validator"
+                : "Enable Validator"}
+            </button>
+
+            <button
+              type="button"
+              onClick={
+                onTick
+              }
+              disabled={
+                loading ||
+                !connected
+              }
+              className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-sky-300 disabled:opacity-30"
+            >
+              {loading
+                ? "Evaluating..."
+                : "Evaluate Now"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
+          Paper only. This feature uses read-only Robinhood market-data tools and cannot place an order. While enabled, the scanner page must remain open for automatic checks. New paper entries are only created during regular U.S. market hours from the latest completed daily signal.
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[10px] text-red-300">
+            Forward validator error: {error}
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <Stat
+            label="Status"
+            value={
+              settings.enabled
+                ? "ENABLED"
+                : "PAUSED"
+            }
+            color={
+              settings.enabled
+                ? "text-emerald-300"
+                : "text-zinc-400"
+            }
+          />
+
+          <Stat
+            label="Total Paper Trades"
+            value={
+              summary.total_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Open"
+            value={
+              summary.open_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Closed"
+            value={
+              summary.closed_trades ??
+              0
+            }
+          />
+
+          <Stat
+            label="Forward Win Rate"
+            value={pct(
+              summary.win_rate_pct
+            )}
+          />
+
+          <Stat
+            label="Forward P/L"
+            value={dollar(
+              summary.total_pl
+            )}
+          />
+
+          <Stat
+            label="Profit Factor"
+            value={ratio(
+              summary.profit_factor
+            )}
+          />
+
+          <Stat
+            label="Max DD"
+            value={dollar(
+              summary.max_drawdown
+            )}
+          />
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+              Latest completed signal snapshot
+            </div>
+
+            {snapshot ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Stat
+                  label="Signal Date"
+                  value={
+                    snapshot.signalDate ??
+                    "—"
+                  }
+                />
+
+                <Stat
+                  label="Signal"
+                  value={
+                    String(
+                      snapshot.signal ??
+                      "neutral"
+                    ).toUpperCase()
+                  }
+                  color={
+                    snapshot.signal ===
+                    "bullish"
+                      ? "text-emerald-300"
+                      : snapshot.signal ===
+                          "bearish"
+                        ? "text-red-300"
+                        : "text-zinc-300"
+                  }
+                />
+
+                <Stat
+                  label="Current PLTR"
+                  value={
+                    snapshot.currentPrice !==
+                    null &&
+                    snapshot.currentPrice !==
+                    undefined
+                      ? formatMoney(
+                          snapshot.currentPrice
+                        )
+                      : "—"
+                  }
+                />
+
+                <Stat
+                  label="RSI"
+                  value={
+                    toNumber(
+                      snapshot.rsi
+                    ) !==
+                    null
+                      ? Number(
+                          snapshot.rsi
+                        ).toFixed(
+                          1
+                        )
+                      : "—"
+                  }
+                />
+
+                <Stat
+                  label="MACD Hist"
+                  value={formatSignedNumber(
+                    snapshot.macdHistogram,
+                    3
+                  )}
+                />
+
+                <Stat
+                  label="Daily Move"
+                  value={pct(
+                    snapshot.changePct
+                  )}
+                />
+              </div>
+            ) : (
+              <div className="mt-3 text-[10px] text-zinc-600">
+                No validator evaluation has been recorded yet.
+              </div>
+            )}
+
+            <div className="mt-3 text-[9px] text-zinc-600">
+              Last evaluation:{" "}
+              {status?.lastEvaluatedAt
+                ? new Date(
+                    status.lastEvaluatedAt
+                  ).toLocaleString()
+                : "Never"}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-black/25 p-3">
+            <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+              Live execution observations
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat
+                label="Avg Entry Slippage"
+                value={
+                  toNumber(
+                    summary.average_entry_slippage_cents
+                  ) !==
+                  null
+                    ? Number(
+                        summary.average_entry_slippage_cents
+                      ).toFixed(
+                        1
+                      ) +
+                      "¢"
+                    : "—"
+                }
+              />
+
+              <Stat
+                label="Avg Exit Slippage"
+                value={
+                  toNumber(
+                    summary.average_exit_slippage_cents
+                  ) !==
+                  null
+                    ? Number(
+                        summary.average_exit_slippage_cents
+                      ).toFixed(
+                        1
+                      ) +
+                      "¢"
+                    : "—"
+                }
+              />
+
+              <Stat
+                label="Historical Stress BE"
+                value="~17¢ round trip"
+              />
+
+              <Stat
+                label="Poll Interval"
+                value={
+                  String(
+                    settings.tickSeconds ??
+                    60
+                  ) +
+                  " sec"
+                }
+              />
+            </div>
+
+            <div className="mt-3 text-[9px] leading-relaxed text-zinc-600">
+              Forward validation is meant to answer whether real live quote behavior remains inside the execution tolerance observed in the historical stress test.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Open forward paper positions
+          </div>
+
+          {openTrades.length >
+          0 ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {openTrades.map(
+                (trade) => (
+                  <div
+                    key={
+                      trade.id
+                    }
+                    className="rounded-xl border border-sky-500/20 bg-sky-500/[0.02] p-3"
+                  >
+                    <div className="font-mono text-sm font-bold text-white">
+                      {formatMoney(
+                        trade.longStrike
+                      )} / {formatMoney(
+                        trade.shortStrike
+                      )}{" "}
+                      {String(
+                        trade.optionType
+                      ).toUpperCase()} spread
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-500">
+                      Signal {trade.signalDate} · Exp {trade.expiration} · Entry {new Date(
+                        trade.entryTimestamp
+                      ).toLocaleString()}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Stat
+                        label="Entry Fill"
+                        value={formatMoney(
+                          trade.entryFill
+                        )}
+                      />
+
+                      <Stat
+                        label="Current Mid"
+                        value={formatMoney(
+                          trade.currentMidpoint
+                        )}
+                      />
+
+                      <Stat
+                        label="Current P/L"
+                        value={dollar(
+                          trade.currentTheoreticalPL
+                        )}
+                      />
+
+                      <Stat
+                        label="MFE / MAE"
+                        value={
+                          dollar(
+                            trade.maxFavorablePL
+                          ) +
+                          " / " +
+                          dollar(
+                            trade.maxAdversePL
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+              No open forward paper position. The validator will wait for a qualifying completed daily signal and a regular-hours evaluation.
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
+            Closed forward paper journal
+          </div>
+
+          {closedTrades.length >
+          0 ? (
+            <div className="overflow-x-auto rounded-lg border border-zinc-800">
+              <table className="min-w-[1200px] w-full text-[9px] font-mono">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-600">
+                    <th className="px-3 py-2 text-left">
+                      Signal
+                    </th>
+
+                    <th className="px-3 py-2 text-left">
+                      Structure
+                    </th>
+
+                    <th className="px-3 py-2 text-left">
+                      Entry
+                    </th>
+
+                    <th className="px-3 py-2 text-left">
+                      Exit
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Entry Fill
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Exit Fill
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      P/L
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Return
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Entry Slip
+                    </th>
+
+                    <th className="px-3 py-2 text-right">
+                      Exit Slip
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {[...closedTrades]
+                    .reverse()
+                    .map(
+                      (trade) => (
+                        <tr
+                          key={
+                            trade.id
+                          }
+                          className="border-b border-zinc-900"
+                        >
+                          <td className="px-3 py-2 text-left">
+                            {String(
+                              trade.signal
+                            ).toUpperCase()}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {formatMoney(
+                              trade.longStrike
+                            )} / {formatMoney(
+                              trade.shortStrike
+                            )} {String(
+                              trade.optionType
+                            ).toUpperCase()}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {new Date(
+                              trade.entryTimestamp
+                            ).toLocaleDateString()}
+                          </td>
+
+                          <td className="px-3 py-2 text-left">
+                            {trade.exitTimestamp
+                              ? new Date(
+                                  trade.exitTimestamp
+                                ).toLocaleDateString()
+                              : "—"}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {formatMoney(
+                              trade.entryFill
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {formatMoney(
+                              trade.exitFill
+                            )}
+                          </td>
+
+                          <td
+                            className={
+                              "px-3 py-2 text-right " +
+                              (
+                                toNumber(
+                                  trade.realizedPL
+                                ) >
+                                0
+                                  ? "text-emerald-300"
+                                  : "text-red-300"
+                              )
+                            }
+                          >
+                            {dollar(
+                              trade.realizedPL
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {pct(
+                              trade.realizedReturnPct
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {toNumber(
+                              trade.entrySlippageCents
+                            ) !==
+                            null
+                              ? Number(
+                                  trade.entrySlippageCents
+                                ).toFixed(
+                                  1
+                                ) +
+                                "¢"
+                              : "—"}
+                          </td>
+
+                          <td className="px-3 py-2 text-right">
+                            {toNumber(
+                              trade.exitSlippageCents
+                            ) !==
+                            null
+                              ? Number(
+                                  trade.exitSlippageCents
+                                ).toFixed(
+                                  1
+                                ) +
+                                "¢"
+                              : "—"}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-zinc-800 p-4 text-center text-[10px] text-zinc-600">
+              No closed forward trades yet. This dataset grows only from future live observations.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /*
   =========================================================
   TICKER TAG
@@ -11673,6 +12338,33 @@ export default function OptionsScanner() {
       feePerContractPerLeg:
         0,
     });
+
+  const [
+    forwardValidatorOpen,
+    setForwardValidatorOpen,
+  ] =
+    useState(false);
+
+  const [
+    forwardValidatorStatus,
+    setForwardValidatorStatus,
+  ] =
+    useState(null);
+
+  const [
+    forwardValidatorLoading,
+    setForwardValidatorLoading,
+  ] =
+    useState(false);
+
+  const [
+    forwardValidatorError,
+    setForwardValidatorError,
+  ] =
+    useState("");
+
+  const forwardValidatorTickRef =
+    useRef(false);
 
   const scanInProgressRef =
     useRef(false);
@@ -13149,6 +13841,221 @@ export default function OptionsScanner() {
       ]
     );
 
+  const refreshForwardValidator =
+    useCallback(
+      async () => {
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/forward-validator"
+            );
+
+          setForwardValidatorStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setForwardValidatorError(
+            error.message
+          );
+
+          return null;
+        }
+      },
+      []
+    );
+
+  const runForwardValidatorTick =
+    useCallback(
+      async () => {
+        if (
+          forwardValidatorTickRef.current
+        ) {
+          return null;
+        }
+
+        forwardValidatorTickRef.current =
+          true;
+
+        setForwardValidatorLoading(
+          true
+        );
+
+        setForwardValidatorError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/forward-validator/tick",
+              {
+                method:
+                  "POST",
+              }
+            );
+
+          setForwardValidatorStatus(
+            result
+          );
+
+          return result;
+
+        } catch (error) {
+          setForwardValidatorError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          forwardValidatorTickRef.current =
+            false;
+
+          setForwardValidatorLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  const setForwardValidatorEnabled =
+    useCallback(
+      async (enabled) => {
+        setForwardValidatorLoading(
+          true
+        );
+
+        setForwardValidatorError(
+          ""
+        );
+
+        try {
+          const result =
+            await fetchJson(
+              PROXY_BASE +
+              "/scanner/forward-validator/settings",
+              {
+                method:
+                  "PUT",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body:
+                  JSON.stringify({
+                    settings: {
+                      enabled:
+                        !!enabled,
+                    },
+                  }),
+              }
+            );
+
+          setForwardValidatorStatus(
+            result
+          );
+
+          if (
+            enabled &&
+            robinhoodStatus.connected
+          ) {
+            setTimeout(
+              () => {
+                runForwardValidatorTick();
+              },
+              50
+            );
+          }
+
+          return result;
+
+        } catch (error) {
+          setForwardValidatorError(
+            error.message
+          );
+
+          return null;
+
+        } finally {
+          setForwardValidatorLoading(
+            false
+          );
+        }
+      },
+      [
+        robinhoodStatus.connected,
+        runForwardValidatorTick,
+      ]
+    );
+
+  useEffect(() => {
+    if (
+      !robinhoodStatus.connected
+    ) {
+      return;
+    }
+
+    refreshForwardValidator();
+  }, [
+    robinhoodStatus.connected,
+    refreshForwardValidator,
+  ]);
+
+  useEffect(() => {
+    if (
+      !robinhoodStatus.connected ||
+      !forwardValidatorStatus
+        ?.settings
+        ?.enabled
+    ) {
+      return undefined;
+    }
+
+    const seconds =
+      Math.max(
+        30,
+        Number(
+          forwardValidatorStatus
+            ?.settings
+            ?.tickSeconds ??
+          60
+        ) ||
+        60
+      );
+
+    const timer =
+      window.setInterval(
+        () => {
+          runForwardValidatorTick();
+        },
+        seconds *
+          1000
+      );
+
+    return () => {
+      window.clearInterval(
+        timer
+      );
+    };
+  }, [
+    robinhoodStatus.connected,
+    forwardValidatorStatus
+      ?.settings
+      ?.enabled,
+    forwardValidatorStatus
+      ?.settings
+      ?.tickSeconds,
+    runForwardValidatorTick,
+  ]);
+
   /*
     =======================================================
     STATUS
@@ -13942,6 +14849,23 @@ Do not invent missing values.`
             </button>
 
             <button
+              type="button"
+              onClick={() =>
+                setForwardValidatorOpen(
+                  (current) =>
+                    !current
+                )
+              }
+              className={
+                forwardValidatorOpen
+                  ? "rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-mono text-emerald-300"
+                  : "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:border-zinc-500"
+              }
+            >
+              Forward Validator
+            </button>
+
+            <button
               onClick={() => {
                 setSavedPlansOpen(
                   (current) =>
@@ -14678,6 +15602,31 @@ Do not invent missing values.`
           }
           connected={
             robinhoodStatus.connected
+          }
+        />
+      )}
+
+      {/* FORWARD PAPER VALIDATOR */}
+
+      {forwardValidatorOpen && (
+        <ForwardPaperValidatorPanel
+          status={
+            forwardValidatorStatus
+          }
+          loading={
+            forwardValidatorLoading
+          }
+          error={
+            forwardValidatorError
+          }
+          connected={
+            robinhoodStatus.connected
+          }
+          onTick={
+            runForwardValidatorTick
+          }
+          onToggle={
+            setForwardValidatorEnabled
           }
         />
       )}
