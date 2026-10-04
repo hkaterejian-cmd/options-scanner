@@ -4838,6 +4838,364 @@ async function buildOptionReplayRows({
   };
 }
 
+
+function buildOptionCoverageDetail({
+  rowsByVariant,
+  coverage,
+}) {
+  const allRows =
+    [
+      ...rowsByVariant.values(),
+    ].flat();
+
+  const signalMap =
+    new Map();
+
+  for (
+    const row of allRows
+  ) {
+    const key =
+      row.signal_time +
+      "|" +
+      row.signal;
+
+    if (
+      !signalMap.has(
+        key
+      )
+    ) {
+      signalMap.set(
+        key,
+        row
+      );
+    }
+  }
+
+  const signalRows =
+    [
+      ...signalMap.values(),
+    ].sort(
+      (a, b) =>
+        Date.parse(
+          a.signal_time
+        ) -
+        Date.parse(
+          b.signal_time
+        )
+    );
+
+  const coverageDates =
+    [
+      ...new Set(
+        signalRows
+          .map(
+            (row) =>
+              utcDateKey(
+                row.signal_time
+              )
+          )
+          .filter(
+            Boolean
+          )
+      ),
+    ].sort();
+
+  const monthlyMap =
+    new Map();
+
+  for (
+    const date of coverageDates
+  ) {
+    const month =
+      date.slice(
+        0,
+        7
+      );
+
+    monthlyMap.set(
+      month,
+      (
+        monthlyMap.get(
+          month
+        ) ??
+        0
+      ) +
+        1
+    );
+  }
+
+  const replayMonthlyMap =
+    new Map();
+
+  for (
+    const row of allRows
+  ) {
+    const date =
+      utcDateKey(
+        row.signal_time
+      );
+
+    if (!date) {
+      continue;
+    }
+
+    const month =
+      date.slice(
+        0,
+        7
+      );
+
+    replayMonthlyMap.set(
+      month,
+      (
+        replayMonthlyMap.get(
+          month
+        ) ??
+        0
+      ) +
+        1
+    );
+  }
+
+  const holdMap =
+    new Map();
+
+  const dteBuckets = {
+    "7-9":
+      0,
+
+    "10-14":
+      0,
+
+    "15-21":
+      0,
+
+    "22+":
+      0,
+  };
+
+  for (
+    const row of allRows
+  ) {
+    const hold =
+      String(
+        row.hold_sessions ??
+        "unknown"
+      );
+
+    holdMap.set(
+      hold,
+      (
+        holdMap.get(
+          hold
+        ) ??
+        0
+      ) +
+        1
+    );
+
+    const dte =
+      finiteNumber(
+        row.entry_dte
+      );
+
+    if (
+      dte ===
+      null
+    ) {
+      continue;
+    }
+
+    if (
+      dte <=
+      9
+    ) {
+      dteBuckets[
+        "7-9"
+      ] +=
+        1;
+
+    } else if (
+      dte <=
+      14
+    ) {
+      dteBuckets[
+        "10-14"
+      ] +=
+        1;
+
+    } else if (
+      dte <=
+      21
+    ) {
+      dteBuckets[
+        "15-21"
+      ] +=
+        1;
+
+    } else {
+      dteBuckets[
+        "22+"
+      ] +=
+        1;
+    }
+  }
+
+  const attemptedReplays =
+    (
+      coverage
+        ?.replay_rows ??
+      0
+    ) +
+    (
+      coverage
+        ?.replay_skips ??
+      0
+    );
+
+  const missingBarRate =
+    attemptedReplays >
+    0
+      ? (
+          (
+            coverage
+              ?.replay_skips ??
+            0
+          ) /
+          attemptedReplays
+        ) *
+        100
+      : null;
+
+  const earliest =
+    coverageDates[0] ??
+    null;
+
+  const latest =
+    coverageDates[
+      coverageDates.length -
+      1
+    ] ??
+    null;
+
+  const coverageDays =
+    earliest &&
+    latest
+      ? Math.round(
+          (
+            Date.parse(
+              latest
+            ) -
+            Date.parse(
+              earliest
+            )
+          ) /
+            (
+              24 *
+              60 *
+              60 *
+              1000
+            )
+        )
+      : null;
+
+  return {
+    earliest_replayable_date:
+      earliest,
+
+    latest_replayable_date:
+      latest,
+
+    coverage_days:
+      coverageDays,
+
+    unique_signal_dates:
+      coverageDates.length,
+
+    bullish_signal_dates:
+      signalRows.filter(
+        (row) =>
+          row.signal ===
+          "bullish"
+      ).length,
+
+    bearish_signal_dates:
+      signalRows.filter(
+        (row) =>
+          row.signal ===
+          "bearish"
+      ).length,
+
+    missing_bar_rate_pct:
+      missingBarRate,
+
+    monthly_signal_dates:
+      [
+        ...monthlyMap.entries(),
+      ].map(
+        ([
+          month,
+          count,
+        ]) => ({
+          month,
+          count,
+        })
+      ),
+
+    monthly_replay_rows:
+      [
+        ...replayMonthlyMap.entries(),
+      ].map(
+        ([
+          month,
+          count,
+        ]) => ({
+          month,
+          count,
+        })
+      ),
+
+    replay_rows_by_hold:
+      [
+        ...holdMap.entries(),
+      ]
+        .map(
+          ([
+            hold,
+            count,
+          ]) => ({
+            hold_sessions:
+              Number(
+                hold
+              ),
+
+            count,
+          })
+        )
+        .sort(
+          (a, b) =>
+            a.hold_sessions -
+            b.hold_sessions
+        ),
+
+    replay_rows_by_dte_bucket:
+      Object.entries(
+        dteBuckets
+      ).map(
+        ([
+          bucket,
+          count,
+        ]) => ({
+          bucket,
+          count,
+        })
+      ),
+
+    coverage_dates:
+      coverageDates,
+  };
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -12248,31 +12606,31 @@ app.post(
           730
         );
 
-      const initialTrainDays =
+      const trainCoverageDates =
         clampNumber(
           req.body
-            ?.trainDays,
-          180,
-          500,
-          365
-        );
-
-      const validationDays =
-        clampNumber(
-          req.body
-            ?.validationDays,
+            ?.trainCoverageDates,
+          12,
           60,
-          180,
-          120
+          20
         );
 
-      const testDays =
+      const validationCoverageDates =
         clampNumber(
           req.body
-            ?.testDays,
+            ?.validationCoverageDates,
+          6,
           30,
-          120,
-          60
+          8
+        );
+
+      const testCoverageDates =
+        clampNumber(
+          req.body
+            ?.testCoverageDates,
+          4,
+          24,
+          6
         );
 
       const maxSignalsPerHold =
@@ -12283,20 +12641,6 @@ app.post(
           60,
           40
         );
-
-      if (
-        initialTrainDays +
-          validationDays +
-          testDays >
-        lookbackDays
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Lookback must exceed train + validation + test windows.",
-          });
-      }
 
       const holdVariants = [
         1,
@@ -12336,12 +12680,115 @@ app.post(
         });
 
       const {
-        requestedStart,
-        end,
         rowsByVariant,
         coverage,
         skipExamples,
       } = dataset;
+
+      const coverageDetail =
+        buildOptionCoverageDetail({
+          rowsByVariant,
+          coverage,
+        });
+
+      const coverageDates =
+        coverageDetail
+          .coverage_dates;
+
+      const minimumDatesNeeded =
+        trainCoverageDates +
+        validationCoverageDates +
+        testCoverageDates;
+
+      if (
+        coverageDates.length <
+        minimumDatesNeeded
+      ) {
+        return res.json({
+          generated_at:
+            new Date().toISOString(),
+
+          engine:
+            "option_replay_walk_forward_coverage_v2",
+
+          symbol,
+
+          parameters: {
+            lookback_days:
+              lookbackDays,
+
+            train_coverage_dates:
+              trainCoverageDates,
+
+            validation_coverage_dates:
+              validationCoverageDates,
+
+            test_coverage_dates:
+              testCoverageDates,
+
+            max_signals_per_hold:
+              maxSignalsPerHold,
+
+            variant_count:
+              192,
+          },
+
+          methodology: {
+            selection:
+              "Coverage-aware folds are built from actual replayable option signal dates rather than empty calendar periods.",
+
+            eligibility:
+              "A structure still requires at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10.",
+
+            caution:
+              "There are not enough replayable signal dates to create even one full coverage-aware fold with the requested settings.",
+          },
+
+          coverage,
+
+          coverage_detail:
+            coverageDetail,
+
+          summary: {
+            folds:
+              0,
+
+            completed_folds:
+              0,
+
+            skipped_folds:
+              0,
+
+            positive_test_folds:
+              0,
+
+            positive_test_fold_rate:
+              null,
+
+            selected_oos:
+              summarizeOptionReplay(
+                []
+              ),
+
+            baseline_oos:
+              summarizeOptionReplay(
+                []
+              ),
+          },
+
+          selection_frequency:
+            [],
+
+          folds:
+            [],
+
+          selected_oos_dataset:
+            [],
+
+          skip_examples:
+            skipExamples,
+        });
+      }
 
       const definitions =
         [];
@@ -12405,19 +12852,6 @@ app.post(
           4,
       };
 
-      let trainEnd =
-        new Date(
-          requestedStart.getTime() +
-          initialTrainDays *
-            24 *
-            60 *
-            60 *
-            1000
-        );
-
-      let foldIndex =
-        1;
-
       function rowsForDefinition(
         definition
       ) {
@@ -12466,35 +12900,54 @@ app.post(
         return rows;
       }
 
+      let trainDateCount =
+        trainCoverageDates;
+
+      let foldIndex =
+        1;
+
       while (
-        true
+        trainDateCount +
+          validationCoverageDates +
+          testCoverageDates <=
+        coverageDates.length
       ) {
-        const validationEnd =
-          new Date(
-            trainEnd.getTime() +
-            validationDays *
-              24 *
-              60 *
-              60 *
-              1000
+        const trainDates =
+          coverageDates.slice(
+            0,
+            trainDateCount
           );
 
-        const testEnd =
-          new Date(
-            validationEnd.getTime() +
-            testDays *
-              24 *
-              60 *
-              60 *
-              1000
+        const validationDates =
+          coverageDates.slice(
+            trainDateCount,
+            trainDateCount +
+              validationCoverageDates
           );
 
-        if (
-          testEnd.getTime() >
-          end.getTime()
-        ) {
-          break;
-        }
+        const testDates =
+          coverageDates.slice(
+            trainDateCount +
+              validationCoverageDates,
+            trainDateCount +
+              validationCoverageDates +
+              testCoverageDates
+          );
+
+        const trainDateSet =
+          new Set(
+            trainDates
+          );
+
+        const validationDateSet =
+          new Set(
+            validationDates
+          );
+
+        const testDateSet =
+          new Set(
+            testDates
+          );
 
         const candidates =
           [];
@@ -12510,30 +12963,30 @@ app.post(
           const trainRows =
             rows.filter(
               (row) =>
-                tradeInDateRange(
-                  row,
-                  requestedStart,
-                  trainEnd
+                trainDateSet.has(
+                  utcDateKey(
+                    row.signal_time
+                  )
                 )
             );
 
           const validationRows =
             rows.filter(
               (row) =>
-                tradeInDateRange(
-                  row,
-                  trainEnd,
-                  validationEnd
+                validationDateSet.has(
+                  utcDateKey(
+                    row.signal_time
+                  )
                 )
             );
 
           const testRows =
             rows.filter(
               (row) =>
-                tradeInDateRange(
-                  row,
-                  validationEnd,
-                  testEnd
+                testDateSet.has(
+                  utcDateKey(
+                    row.signal_time
+                  )
                 )
             );
 
@@ -12673,10 +13126,10 @@ app.post(
             baselineDefinition
           ).filter(
             (row) =>
-              tradeInDateRange(
-                row,
-                validationEnd,
-                testEnd
+              testDateSet.has(
+                utcDateKey(
+                  row.signal_time
+                )
               )
           );
 
@@ -12695,23 +13148,47 @@ app.post(
           fold:
             foldIndex,
 
+          train_signal_dates:
+            trainDates.length,
+
+          validation_signal_dates:
+            validationDates.length,
+
+          test_signal_dates:
+            testDates.length,
+
           train_start:
-            requestedStart.toISOString(),
+            trainDates[0] ??
+            null,
 
           train_end:
-            trainEnd.toISOString(),
+            trainDates[
+              trainDates.length -
+              1
+            ] ??
+            null,
 
           validation_start:
-            trainEnd.toISOString(),
+            validationDates[0] ??
+            null,
 
           validation_end:
-            validationEnd.toISOString(),
+            validationDates[
+              validationDates.length -
+              1
+            ] ??
+            null,
 
           test_start:
-            validationEnd.toISOString(),
+            testDates[0] ??
+            null,
 
           test_end:
-            testEnd.toISOString(),
+            testDates[
+              testDates.length -
+              1
+            ] ??
+            null,
 
           eligible_candidate_count:
             candidates.length,
@@ -12745,15 +13222,8 @@ app.post(
             ),
         });
 
-        trainEnd =
-          new Date(
-            trainEnd.getTime() +
-            testDays *
-              24 *
-              60 *
-              60 *
-              1000
-          );
+        trainDateCount +=
+          testCoverageDates;
 
         foldIndex +=
           1;
@@ -12804,7 +13274,7 @@ app.post(
           new Date().toISOString(),
 
         engine:
-          "option_replay_walk_forward_v1",
+          "option_replay_walk_forward_coverage_v2",
 
         symbol,
 
@@ -12812,14 +13282,14 @@ app.post(
           lookback_days:
             lookbackDays,
 
-          initial_train_days:
-            initialTrainDays,
+          train_coverage_dates:
+            trainCoverageDates,
 
-          validation_days:
-            validationDays,
+          validation_coverage_dates:
+            validationCoverageDates,
 
-          test_days:
-            testDays,
+          test_coverage_dates:
+            testCoverageDates,
 
           max_signals_per_hold:
             maxSignalsPerHold,
@@ -12830,19 +13300,25 @@ app.post(
 
         methodology: {
           selection:
-            "Each fold searches direction, hold, target DTE, and short-strike distance using only prior option replays. Eligibility requires at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10.",
+            "Folds are aligned to actual replayable option signal dates rather than fixed calendar windows. Each fold searches direction, hold, target DTE, and short-strike distance using only prior option replays.",
+
+          eligibility:
+            "A structure still requires at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10.",
 
           rolling:
-            "Training expands forward by one test window per fold. The next test window is not used for selection.",
+            "Training expands by the number of signal dates in one test block. The next replayable signal-date block remains unseen until after selection.",
 
           pricing:
             "Expired option daily trade-price OHLC bars are used as a spread-fill proxy. Historical synchronized bid/ask quotes and Greeks are not reconstructed.",
 
           caution:
-            "Do not retune these thresholds after seeing unseen fold results without creating a new future holdout.",
+            "Coverage-aware folds prevent empty validation windows, but they do not create historical data that Robinhood does not provide.",
         },
 
         coverage,
+
+        coverage_detail:
+          coverageDetail,
 
         summary: {
           folds:
@@ -12980,6 +13456,7 @@ app.post(
     }
   }
 );
+
 
 app.get(
   "/scanner/paper-analytics",
