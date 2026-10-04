@@ -10873,6 +10873,14 @@ function ForwardPaperValidatorPanel({
     status?.summary ??
     {};
 
+  const scheduler =
+    status?.scheduler ??
+    {};
+
+  const readiness =
+    summary?.readiness_gate ??
+    null;
+
   const snapshot =
     status?.lastSnapshot ??
     null;
@@ -11026,7 +11034,7 @@ function ForwardPaperValidatorPanel({
         </div>
 
         <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.035] p-3 text-[9px] leading-relaxed text-zinc-500">
-          Paper only. This feature uses read-only Robinhood market-data tools and cannot place an order. While enabled, the scanner page must remain open for automatic checks. New paper entries are only created during regular U.S. market hours from the latest completed daily signal.
+          Paper only. This feature uses read-only Robinhood market-data tools and cannot place an order. Automatic checks now run from the backend scheduler, so the browser page does not need to remain open; the proxy process still must be running and Robinhood must remain connected. New paper entries are only created during regular U.S. market hours from the latest completed daily signal.
         </div>
 
         {error && (
@@ -11245,13 +11253,16 @@ function ForwardPaperValidatorPanel({
               />
 
               <Stat
-                label="Poll Interval"
+                label="Backend Scheduler"
                 value={
-                  String(
-                    settings.tickSeconds ??
-                    60
-                  ) +
-                  " sec"
+                  scheduler.backend_scheduler_active
+                    ? "ACTIVE"
+                    : "OFF"
+                }
+                color={
+                  scheduler.backend_scheduler_active
+                    ? "text-emerald-300"
+                    : "text-red-300"
                 }
               />
             </div>
@@ -11261,6 +11272,101 @@ function ForwardPaperValidatorPanel({
             </div>
           </div>
         </div>
+
+        {readiness && (
+          <div
+            className={
+              readiness.status ===
+              "pass"
+                ? "mt-5 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4"
+                : "mt-5 rounded-xl border border-amber-500/25 bg-amber-500/[0.03] p-4"
+            }
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[9px] uppercase tracking-widest text-zinc-500">
+                  Forward evidence gate
+                </div>
+
+                <div className="mt-1 text-sm font-bold text-white">
+                  {readiness.status ===
+                  "pass"
+                    ? "Paper-forward evidence gate passed"
+                    : "Collecting paper-forward evidence"}
+                </div>
+
+                <div className="mt-1 text-[9px] text-zinc-600">
+                  {readiness.passed_count}/{readiness.total_checks} checks currently pass. This gate does not authorize live trading.
+                </div>
+              </div>
+
+              <div
+                className={
+                  readiness.status ===
+                  "pass"
+                    ? "rounded border border-emerald-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-emerald-300"
+                    : "rounded border border-amber-500/30 px-2 py-1 text-[9px] uppercase tracking-widest text-amber-300"
+                }
+              >
+                {readiness.status ===
+                "pass"
+                  ? "PASS"
+                  : "COLLECTING"}
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {(readiness.checks ?? []).map(
+                (check) => (
+                  <div
+                    key={
+                      check.id
+                    }
+                    className={
+                      check.passed
+                        ? "rounded border border-emerald-500/15 bg-emerald-500/[0.02] p-3"
+                        : "rounded border border-zinc-800 bg-black/20 p-3"
+                    }
+                  >
+                    <div
+                      className={
+                        check.passed
+                          ? "text-[9px] uppercase tracking-widest text-emerald-400"
+                          : "text-[9px] uppercase tracking-widest text-zinc-500"
+                      }
+                    >
+                      {check.passed ? "PASS" : "WAIT"} · {check.label}
+                    </div>
+
+                    <div className="mt-1 font-mono text-xs text-zinc-200">
+                      {typeof check.actual ===
+                        "number"
+                        ? check.actual.toFixed(
+                            2
+                          )
+                        : check.actual ??
+                          "—"}
+                    </div>
+
+                    <div className="mt-1 text-[9px] text-zinc-600">
+                      Target {check.threshold}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            <div className="mt-3 text-[9px] text-zinc-600">
+              Scheduler last run:{" "}
+              {scheduler.last_run_at
+                ? new Date(
+                    scheduler.last_run_at
+                  ).toLocaleString()
+                : "Not yet"}{" "}
+              · Last scheduler error: {scheduler.last_error || "None"}
+            </div>
+          </div>
+        )}
 
         <div className="mt-5">
           <div className="mb-2 text-[9px] uppercase tracking-widest text-zinc-500">
@@ -14019,25 +14125,12 @@ export default function OptionsScanner() {
       return undefined;
     }
 
-    const seconds =
-      Math.max(
-        30,
-        Number(
-          forwardValidatorStatus
-            ?.settings
-            ?.tickSeconds ??
-          60
-        ) ||
-        60
-      );
-
     const timer =
       window.setInterval(
         () => {
-          runForwardValidatorTick();
+          refreshForwardValidator();
         },
-        seconds *
-          1000
+        30000
       );
 
     return () => {
@@ -14050,10 +14143,7 @@ export default function OptionsScanner() {
     forwardValidatorStatus
       ?.settings
       ?.enabled,
-    forwardValidatorStatus
-      ?.settings
-      ?.tickSeconds,
-    runForwardValidatorTick,
+    refreshForwardValidator,
   ]);
 
   /*
