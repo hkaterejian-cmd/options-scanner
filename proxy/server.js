@@ -3894,6 +3894,950 @@ function splitReplayRowsByDate({
   };
 }
 
+
+function sampleEvenly(
+  rows,
+  maxCount
+) {
+  if (
+    !Array.isArray(
+      rows
+    ) ||
+    rows.length <=
+      maxCount
+  ) {
+    return rows;
+  }
+
+  if (
+    maxCount <=
+    1
+  ) {
+    return [
+      rows[
+        rows.length -
+        1
+      ],
+    ];
+  }
+
+  const sampled =
+    [];
+
+  const lastIndex =
+    rows.length -
+    1;
+
+  for (
+    let index =
+      0;
+    index <
+    maxCount;
+    index++
+  ) {
+    const position =
+      Math.round(
+        (
+          index /
+          (
+            maxCount -
+            1
+          )
+        ) *
+        lastIndex
+      );
+
+    sampled.push(
+      rows[
+        position
+      ]
+    );
+  }
+
+  return sampled;
+}
+
+async function buildOptionReplayRows({
+  symbol,
+  lookbackDays,
+  maxSignalsPerHold,
+  holdVariants,
+  targetDteVariants,
+  shortDistanceVariants,
+}) {
+  const end =
+    new Date();
+
+  const requestedStart =
+    new Date(
+      end.getTime() -
+      lookbackDays *
+        24 *
+        60 *
+        60 *
+        1000
+    );
+
+  const fetchStart =
+    new Date(
+      requestedStart.getTime() -
+      120 *
+        24 *
+        60 *
+        60 *
+        1000
+    );
+
+  const common = {
+    start_time:
+      fetchStart.toISOString(),
+
+    end_time:
+      end.toISOString(),
+
+    interval:
+      "day",
+
+    bounds:
+      "regular",
+
+    adjustment_type:
+      "split",
+  };
+
+  const [
+    historicalResult,
+    rsiResult,
+    macdResult,
+  ] =
+    await Promise.all([
+      callRobinhoodTool(
+        "get_equity_historicals",
+        {
+          symbols: [
+            symbol,
+          ],
+
+          ...common,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "rsi",
+
+          ...common,
+
+          output:
+            "series",
+
+          period:
+            14,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "macd",
+
+          ...common,
+
+          output:
+            "series",
+
+          fast_period:
+            12,
+
+          slow_period:
+            26,
+
+          signal_period:
+            9,
+        }
+      ),
+    ]);
+
+  const bars =
+    extractBacktestBars(
+      unwrapRobinhoodToolResult(
+        historicalResult
+      )
+    );
+
+  const rsiSeries =
+    extractBacktestIndicator(
+      unwrapRobinhoodToolResult(
+        rsiResult
+      ),
+      "rsi"
+    );
+
+  const macdSeries =
+    extractBacktestIndicator(
+      unwrapRobinhoodToolResult(
+        macdResult
+      ),
+      "macd"
+    );
+
+  const signalsByHold =
+    new Map();
+
+  for (
+    const holdDays of holdVariants
+  ) {
+    const rawSignals =
+      runDirectionalBacktest({
+        bars,
+        rsiSeries,
+        macdSeries,
+        requestedStart,
+        holdDays,
+        costBps:
+          0,
+        nonOverlapping:
+          true,
+        directionMode:
+          "both",
+        bullishRsi:
+          55,
+        bearishRsi:
+          45,
+        requiredSignals:
+          2,
+        symbol,
+      })
+        .filter(
+          (trade) =>
+            Date.parse(
+              trade.exit_time
+            ) <
+            end.getTime()
+        );
+
+    signalsByHold.set(
+      holdDays,
+      sampleEvenly(
+        rawSignals,
+        maxSignalsPerHold
+      )
+    );
+  }
+
+  const instrumentCache =
+    new Map();
+
+  const verticalCache =
+    new Map();
+
+  const specs =
+    [];
+
+  const setupSkips =
+    [];
+
+  async function resolveVertical({
+    signal,
+    targetDte,
+    shortDistancePct,
+  }) {
+    const type =
+      signal.signal ===
+      "bullish"
+        ? "call"
+        : "put";
+
+    const entryDate =
+      new Date(
+        signal.entry_time
+      );
+
+    const entryKey =
+      utcDateKey(
+        entryDate
+      );
+
+    const verticalKey =
+      [
+        entryKey,
+        type,
+        targetDte,
+        shortDistancePct,
+      ].join(
+        "|"
+      );
+
+    if (
+      verticalCache.has(
+        verticalKey
+      )
+    ) {
+      return verticalCache.get(
+        verticalKey
+      );
+    }
+
+    const desiredExpiration =
+      nextFridayOnOrAfter(
+        addUtcDays(
+          entryDate,
+          targetDte
+        )
+      );
+
+    let resolved =
+      null;
+
+    for (
+      let attempt =
+        0;
+      attempt <
+      4;
+      attempt++
+    ) {
+      const expirationDate =
+        addUtcDays(
+          desiredExpiration,
+          attempt *
+            7
+        );
+
+      if (
+        expirationDate.getTime() >=
+        end.getTime()
+      ) {
+        continue;
+      }
+
+      const expiration =
+        utcDateKey(
+          expirationDate
+        );
+
+      const cacheKey =
+        symbol +
+        "|" +
+        expiration +
+        "|" +
+        type;
+
+      let instruments =
+        instrumentCache.get(
+          cacheKey
+        );
+
+      if (!instruments) {
+        instruments =
+          await loadExpiredOptionInstruments({
+            symbol,
+            expiration,
+            type,
+          });
+
+        instrumentCache.set(
+          cacheKey,
+          instruments
+        );
+      }
+
+      const vertical =
+        chooseHistoricalVertical({
+          instruments,
+          type,
+          spot:
+            signal.entry_open,
+          shortDistancePct,
+        });
+
+      if (!vertical) {
+        continue;
+      }
+
+      resolved = {
+        type,
+        expiration,
+        vertical,
+      };
+
+      break;
+    }
+
+    verticalCache.set(
+      verticalKey,
+      resolved
+    );
+
+    return resolved;
+  }
+
+  for (
+    const holdDays of holdVariants
+  ) {
+    const signals =
+      signalsByHold.get(
+        holdDays
+      ) ??
+      [];
+
+    for (
+      const signal of signals
+    ) {
+      for (
+        const targetDte of targetDteVariants
+      ) {
+        for (
+          const shortDistancePct of shortDistanceVariants
+        ) {
+          const resolved =
+            await resolveVertical({
+              signal,
+              targetDte,
+              shortDistancePct,
+            });
+
+          if (!resolved) {
+            setupSkips.push({
+              hold_days:
+                holdDays,
+
+              target_dte:
+                targetDte,
+
+              short_distance_pct:
+                shortDistancePct,
+
+              signal_time:
+                signal.signal_time,
+
+              entry_time:
+                signal.entry_time,
+
+              signal:
+                signal.signal,
+
+              reason:
+                "No usable expired vertical could be constructed.",
+            });
+
+            continue;
+          }
+
+          specs.push({
+            signal,
+            holdDays,
+            targetDte,
+            shortDistancePct,
+            type:
+              resolved.type,
+            expiration:
+              resolved.expiration,
+            vertical:
+              resolved.vertical,
+          });
+        }
+      }
+    }
+  }
+
+  const optionIds =
+    [
+      ...new Set(
+        specs.flatMap(
+          (spec) => [
+            spec.vertical
+              .long
+              .id,
+            spec.vertical
+              .short
+              .id,
+          ]
+        )
+      ),
+    ];
+
+  const optionHistoryById =
+    new Map();
+
+  for (
+    let index =
+      0;
+    index <
+    optionIds.length;
+    index +=
+      10
+  ) {
+    const batch =
+      optionIds.slice(
+        index,
+        index +
+          10
+      );
+
+    const historical =
+      await callRobinhoodTool(
+        "get_option_historicals",
+        {
+          instrument_ids:
+            batch,
+
+          start_time:
+            fetchStart.toISOString(),
+
+          end_time:
+            end.toISOString(),
+
+          interval:
+            "day",
+
+          bounds:
+            "regular",
+        }
+      );
+
+    const payload =
+      unwrapRobinhoodToolResult(
+        historical
+      );
+
+    const results =
+      extractOptionHistoricalResults(
+        payload
+      );
+
+    for (
+      const result of results
+    ) {
+      optionHistoryById.set(
+        result.instrument_id,
+        normalizeOptionBars(
+          result
+        )
+      );
+    }
+  }
+
+  const rowsByVariant =
+    new Map();
+
+  const replaySkips =
+    [];
+
+  for (
+    const spec of specs
+  ) {
+    const {
+      signal,
+      holdDays,
+      targetDte,
+      shortDistancePct,
+      type,
+      expiration,
+      vertical,
+    } = spec;
+
+    const longBars =
+      optionHistoryById.get(
+        vertical.long.id
+      ) ??
+      [];
+
+    const shortBars =
+      optionHistoryById.get(
+        vertical.short.id
+      ) ??
+      [];
+
+    const entryKey =
+      utcDateKey(
+        signal.entry_time
+      );
+
+    const exitKey =
+      utcDateKey(
+        signal.exit_time
+      );
+
+    const longEntry =
+      longBars.find(
+        (bar) =>
+          bar.date ===
+          entryKey
+      );
+
+    const shortEntry =
+      shortBars.find(
+        (bar) =>
+          bar.date ===
+          entryKey
+      );
+
+    const longExit =
+      longBars.find(
+        (bar) =>
+          bar.date ===
+          exitKey
+      );
+
+    const shortExit =
+      shortBars.find(
+        (bar) =>
+          bar.date ===
+          exitKey
+      );
+
+    if (
+      !longEntry ||
+      !shortEntry ||
+      !longExit ||
+      !shortExit
+    ) {
+      replaySkips.push({
+        hold_days:
+          holdDays,
+
+        target_dte:
+          targetDte,
+
+        short_distance_pct:
+          shortDistancePct,
+
+        signal_time:
+          signal.signal_time,
+
+        entry_time:
+          signal.entry_time,
+
+        expiration,
+
+        reason:
+          "Missing exact historical option bar on entry or exit date.",
+      });
+
+      continue;
+    }
+
+    const entryDebit =
+      longEntry.open -
+      shortEntry.open;
+
+    if (
+      entryDebit <=
+        0 ||
+      entryDebit >=
+        vertical.width
+    ) {
+      replaySkips.push({
+        hold_days:
+          holdDays,
+
+        target_dte:
+          targetDte,
+
+        short_distance_pct:
+          shortDistancePct,
+
+        signal_time:
+          signal.signal_time,
+
+        entry_time:
+          signal.entry_time,
+
+        expiration,
+
+        reason:
+          "Historical leg trade prices produced an invalid debit.",
+      });
+
+      continue;
+    }
+
+    const exitValue =
+      Math.max(
+        0,
+        Math.min(
+          vertical.width,
+          longExit.close -
+          shortExit.close
+        )
+      );
+
+    const pnlDollars =
+      (
+        exitValue -
+        entryDebit
+      ) *
+      100;
+
+    const returnPct =
+      (
+        (
+          exitValue -
+          entryDebit
+        ) /
+        entryDebit
+      ) *
+      100;
+
+    const shortByDate =
+      new Map(
+        shortBars.map(
+          (bar) => [
+            bar.date,
+            bar,
+          ]
+        )
+      );
+
+    const closeReturns =
+      longBars
+        .filter(
+          (bar) =>
+            bar.date >=
+              entryKey &&
+            bar.date <=
+              exitKey &&
+            shortByDate.has(
+              bar.date
+            )
+        )
+        .map(
+          (bar) => {
+            const shortBar =
+              shortByDate.get(
+                bar.date
+              );
+
+            const value =
+              Math.max(
+                0,
+                Math.min(
+                  vertical.width,
+                  bar.close -
+                  shortBar.close
+                )
+              );
+
+            return (
+              (
+                value -
+                entryDebit
+              ) /
+              entryDebit
+            ) *
+              100;
+          }
+        );
+
+    const dte =
+      Math.round(
+        (
+          Date.parse(
+            expiration +
+            "T00:00:00Z"
+          ) -
+          Date.parse(
+            signal.entry_time
+          )
+        ) /
+          (
+            24 *
+            60 *
+            60 *
+            1000
+          )
+      );
+
+    const row = {
+      id:
+        [
+          signal.signal_time,
+          holdDays,
+          targetDte,
+          shortDistancePct,
+          type,
+        ].join(
+          "|"
+        ),
+
+      symbol,
+
+      signal:
+        signal.signal,
+
+      signal_time:
+        signal.signal_time,
+
+      entry_time:
+        signal.entry_time,
+
+      exit_time:
+        signal.exit_time,
+
+      rsi:
+        signal.rsi,
+
+      macd_histogram:
+        signal.macd_histogram,
+
+      signal_change_pct:
+        signal.signal_change_pct,
+
+      hold_sessions:
+        holdDays,
+
+      target_dte:
+        targetDte,
+
+      short_distance_pct:
+        shortDistancePct,
+
+      option_type:
+        type,
+
+      expiration,
+
+      entry_dte:
+        dte,
+
+      long_strike:
+        vertical.long.strike,
+
+      short_strike:
+        vertical.short.strike,
+
+      spread_width:
+        vertical.width,
+
+      entry_debit:
+        entryDebit,
+
+      exit_spread_value:
+        exitValue,
+
+      pnl_dollars:
+        pnlDollars,
+
+      return_on_debit_pct:
+        returnPct,
+
+      close_path_mfe_pct:
+        closeReturns.length
+          ? Math.max(
+              ...closeReturns
+            )
+          : null,
+
+      close_path_mae_pct:
+        closeReturns.length
+          ? Math.min(
+              ...closeReturns
+            )
+          : null,
+    };
+
+    const variantKey =
+      optionReplayVariantKey({
+        holdDays,
+        targetDte,
+        shortDistancePct,
+      });
+
+    if (
+      !rowsByVariant.has(
+        variantKey
+      )
+    ) {
+      rowsByVariant.set(
+        variantKey,
+        []
+      );
+    }
+
+    rowsByVariant.get(
+      variantKey
+    ).push(
+      row
+    );
+  }
+
+  for (
+    const rows of rowsByVariant.values()
+  ) {
+    rows.sort(
+      (a, b) =>
+        Date.parse(
+          a.exit_time
+        ) -
+        Date.parse(
+          b.exit_time
+        )
+    );
+  }
+
+  return {
+    symbol,
+    end,
+    requestedStart,
+    fetchStart,
+    rowsByVariant,
+
+    coverage: {
+      unique_option_contracts:
+        optionIds.length,
+
+      replay_rows:
+        [
+          ...rowsByVariant.values(),
+        ].reduce(
+          (
+            total,
+            rows
+          ) =>
+            total +
+            rows.length,
+          0
+        ),
+
+      setup_skips:
+        setupSkips.length,
+
+      replay_skips:
+        replaySkips.length,
+
+      sampled_signal_counts:
+        Object.fromEntries(
+          [
+            ...signalsByHold.entries(),
+          ].map(
+            ([
+              hold,
+              signals,
+            ]) => [
+              hold,
+              signals.length,
+            ]
+          )
+        ),
+    },
+
+    skipExamples: [
+      ...setupSkips,
+      ...replaySkips,
+    ].slice(
+      0,
+      40
+    ),
+  };
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -11272,6 +12216,760 @@ app.post(
           0,
           30
         ),
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+app.post(
+  "/scanner/option-replay-walk-forward",
+
+  async (req, res) => {
+    try {
+      const symbol =
+        normalizeTicker(
+          req.body
+            ?.symbol
+        );
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          365,
+          730,
+          730
+        );
+
+      const initialTrainDays =
+        clampNumber(
+          req.body
+            ?.trainDays,
+          180,
+          500,
+          365
+        );
+
+      const validationDays =
+        clampNumber(
+          req.body
+            ?.validationDays,
+          60,
+          180,
+          120
+        );
+
+      const testDays =
+        clampNumber(
+          req.body
+            ?.testDays,
+          30,
+          120,
+          60
+        );
+
+      const maxSignalsPerHold =
+        clampNumber(
+          req.body
+            ?.maxSignalsPerHold,
+          20,
+          60,
+          40
+        );
+
+      if (
+        initialTrainDays +
+          validationDays +
+          testDays >
+        lookbackDays
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Lookback must exceed train + validation + test windows.",
+          });
+      }
+
+      const holdVariants = [
+        1,
+        3,
+        5,
+        10,
+      ];
+
+      const targetDteVariants = [
+        7,
+        9,
+        14,
+        21,
+      ];
+
+      const shortDistanceVariants = [
+        2,
+        4,
+        6,
+        8,
+      ];
+
+      const directionModes = [
+        "both",
+        "bullish_only",
+        "bearish_only",
+      ];
+
+      const dataset =
+        await buildOptionReplayRows({
+          symbol,
+          lookbackDays,
+          maxSignalsPerHold,
+          holdVariants,
+          targetDteVariants,
+          shortDistanceVariants,
+        });
+
+      const {
+        requestedStart,
+        end,
+        rowsByVariant,
+        coverage,
+        skipExamples,
+      } = dataset;
+
+      const definitions =
+        [];
+
+      for (
+        const directionMode of directionModes
+      ) {
+        for (
+          const holdDays of holdVariants
+        ) {
+          for (
+            const targetDte of targetDteVariants
+          ) {
+            for (
+              const shortDistancePct of shortDistanceVariants
+            ) {
+              definitions.push({
+                id:
+                  [
+                    directionMode,
+                    holdDays,
+                    targetDte,
+                    shortDistancePct,
+                  ].join(
+                    "|"
+                  ),
+
+                directionMode,
+                holdDays,
+                targetDte,
+                shortDistancePct,
+              });
+            }
+          }
+        }
+      }
+
+      const folds =
+        [];
+
+      const selectedOosRows =
+        [];
+
+      const baselineOosRows =
+        [];
+
+      const selections =
+        [];
+
+      const baselineDefinition = {
+        directionMode:
+          "both",
+
+        holdDays:
+          5,
+
+        targetDte:
+          9,
+
+        shortDistancePct:
+          4,
+      };
+
+      let trainEnd =
+        new Date(
+          requestedStart.getTime() +
+          initialTrainDays *
+            24 *
+            60 *
+            60 *
+            1000
+        );
+
+      let foldIndex =
+        1;
+
+      function rowsForDefinition(
+        definition
+      ) {
+        const key =
+          optionReplayVariantKey({
+            holdDays:
+              definition.holdDays,
+
+            targetDte:
+              definition.targetDte,
+
+            shortDistancePct:
+              definition.shortDistancePct,
+          });
+
+        let rows =
+          rowsByVariant.get(
+            key
+          ) ??
+          [];
+
+        if (
+          definition.directionMode ===
+          "bullish_only"
+        ) {
+          rows =
+            rows.filter(
+              (row) =>
+                row.signal ===
+                "bullish"
+            );
+        }
+
+        if (
+          definition.directionMode ===
+          "bearish_only"
+        ) {
+          rows =
+            rows.filter(
+              (row) =>
+                row.signal ===
+                "bearish"
+            );
+        }
+
+        return rows;
+      }
+
+      while (
+        true
+      ) {
+        const validationEnd =
+          new Date(
+            trainEnd.getTime() +
+            validationDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        const testEnd =
+          new Date(
+            validationEnd.getTime() +
+            testDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        if (
+          testEnd.getTime() >
+          end.getTime()
+        ) {
+          break;
+        }
+
+        const candidates =
+          [];
+
+        for (
+          const definition of definitions
+        ) {
+          const rows =
+            rowsForDefinition(
+              definition
+            );
+
+          const trainRows =
+            rows.filter(
+              (row) =>
+                tradeInDateRange(
+                  row,
+                  requestedStart,
+                  trainEnd
+                )
+            );
+
+          const validationRows =
+            rows.filter(
+              (row) =>
+                tradeInDateRange(
+                  row,
+                  trainEnd,
+                  validationEnd
+                )
+            );
+
+          const testRows =
+            rows.filter(
+              (row) =>
+                tradeInDateRange(
+                  row,
+                  validationEnd,
+                  testEnd
+                )
+            );
+
+          const trainSummary =
+            summarizeOptionReplay(
+              trainRows
+            );
+
+          const validationSummary =
+            summarizeOptionReplay(
+              validationRows
+            );
+
+          if (
+            trainSummary.trades <
+              20 ||
+            validationSummary.trades <
+              8 ||
+            (
+              validationSummary
+                .average_return_on_debit_pct ??
+              0
+            ) <=
+              0 ||
+            (
+              validationSummary
+                .profit_factor ??
+              0
+            ) <
+              1.1
+          ) {
+            continue;
+          }
+
+          const score =
+            optionReplayResearchScore(
+              validationSummary
+            );
+
+          if (
+            score ===
+            null
+          ) {
+            continue;
+          }
+
+          candidates.push({
+            id:
+              definition.id,
+
+            parameters: {
+              direction_mode:
+                definition
+                  .directionMode,
+
+              hold_sessions:
+                definition
+                  .holdDays,
+
+              target_dte:
+                definition
+                  .targetDte,
+
+              short_distance_pct:
+                definition
+                  .shortDistancePct,
+            },
+
+            train:
+              trainSummary,
+
+            validation:
+              validationSummary,
+
+            test:
+              summarizeOptionReplay(
+                testRows
+              ),
+
+            score,
+
+            testRows,
+          });
+        }
+
+        candidates.sort(
+          (a, b) =>
+            b.score -
+              a.score ||
+            (
+              b.validation
+                .profit_factor ??
+              -Infinity
+            ) -
+              (
+                a.validation
+                  .profit_factor ??
+                -Infinity
+              )
+        );
+
+        const selected =
+          candidates[0] ??
+          null;
+
+        if (
+          selected
+        ) {
+          selections.push({
+            id:
+              selected.id,
+
+            parameters:
+              selected.parameters,
+          });
+
+          selectedOosRows.push(
+            ...selected.testRows.map(
+              (row) => ({
+                ...row,
+
+                walk_forward_fold:
+                  foldIndex,
+
+                selected_rule_id:
+                  selected.id,
+
+                selected_using_prior_data_only:
+                  true,
+              })
+            )
+          );
+        }
+
+        const baselineRows =
+          rowsForDefinition(
+            baselineDefinition
+          ).filter(
+            (row) =>
+              tradeInDateRange(
+                row,
+                validationEnd,
+                testEnd
+              )
+          );
+
+        baselineOosRows.push(
+          ...baselineRows.map(
+            (row) => ({
+              ...row,
+
+              walk_forward_fold:
+                foldIndex,
+            })
+          )
+        );
+
+        folds.push({
+          fold:
+            foldIndex,
+
+          train_start:
+            requestedStart.toISOString(),
+
+          train_end:
+            trainEnd.toISOString(),
+
+          validation_start:
+            trainEnd.toISOString(),
+
+          validation_end:
+            validationEnd.toISOString(),
+
+          test_start:
+            validationEnd.toISOString(),
+
+          test_end:
+            testEnd.toISOString(),
+
+          eligible_candidate_count:
+            candidates.length,
+
+          selected_candidate:
+            selected
+              ? {
+                  id:
+                    selected.id,
+
+                  parameters:
+                    selected.parameters,
+
+                  train:
+                    selected.train,
+
+                  validation:
+                    selected.validation,
+
+                  test:
+                    selected.test,
+
+                  validation_score:
+                    selected.score,
+                }
+              : null,
+
+          baseline_test:
+            summarizeOptionReplay(
+              baselineRows
+            ),
+        });
+
+        trainEnd =
+          new Date(
+            trainEnd.getTime() +
+            testDays *
+              24 *
+              60 *
+              60 *
+              1000
+          );
+
+        foldIndex +=
+          1;
+      }
+
+      selectedOosRows.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      baselineOosRows.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      const completedFolds =
+        folds.filter(
+          (fold) =>
+            !!fold
+              .selected_candidate
+        );
+
+      const positiveFolds =
+        completedFolds.filter(
+          (fold) =>
+            (
+              fold
+                .selected_candidate
+                ?.test
+                ?.total_pnl_dollars ??
+              0
+            ) >
+            0
+        ).length;
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "option_replay_walk_forward_v1",
+
+        symbol,
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          initial_train_days:
+            initialTrainDays,
+
+          validation_days:
+            validationDays,
+
+          test_days:
+            testDays,
+
+          max_signals_per_hold:
+            maxSignalsPerHold,
+
+          variant_count:
+            definitions.length,
+        },
+
+        methodology: {
+          selection:
+            "Each fold searches direction, hold, target DTE, and short-strike distance using only prior option replays. Eligibility requires at least 20 training replays, 8 validation replays, positive validation average return, and validation profit factor of at least 1.10.",
+
+          rolling:
+            "Training expands forward by one test window per fold. The next test window is not used for selection.",
+
+          pricing:
+            "Expired option daily trade-price OHLC bars are used as a spread-fill proxy. Historical synchronized bid/ask quotes and Greeks are not reconstructed.",
+
+          caution:
+            "Do not retune these thresholds after seeing unseen fold results without creating a new future holdout.",
+        },
+
+        coverage,
+
+        summary: {
+          folds:
+            folds.length,
+
+          completed_folds:
+            completedFolds.length,
+
+          skipped_folds:
+            folds.length -
+            completedFolds.length,
+
+          positive_test_folds:
+            positiveFolds,
+
+          positive_test_fold_rate:
+            completedFolds.length
+              ? (
+                  positiveFolds /
+                  completedFolds.length
+                ) *
+                100
+              : null,
+
+          selected_oos:
+            summarizeOptionReplay(
+              selectedOosRows
+            ),
+
+          baseline_oos:
+            summarizeOptionReplay(
+              baselineOosRows
+            ),
+        },
+
+        selection_frequency:
+          selectionFrequencyRows(
+            selections
+          ),
+
+        folds,
+
+        selected_oos_dataset:
+          selectedOosRows.map(
+            (row) => ({
+              symbol:
+                row.symbol,
+
+              fold:
+                row.walk_forward_fold,
+
+              selected_rule_id:
+                row.selected_rule_id,
+
+              selected_using_prior_data_only:
+                row.selected_using_prior_data_only,
+
+              signal:
+                row.signal,
+
+              signal_time:
+                row.signal_time,
+
+              entry_time:
+                row.entry_time,
+
+              exit_time:
+                row.exit_time,
+
+              rsi:
+                row.rsi,
+
+              macd_histogram:
+                row.macd_histogram,
+
+              signal_change_pct:
+                row.signal_change_pct,
+
+              hold_sessions:
+                row.hold_sessions,
+
+              target_dte:
+                row.target_dte,
+
+              short_distance_pct:
+                row.short_distance_pct,
+
+              option_type:
+                row.option_type,
+
+              expiration:
+                row.expiration,
+
+              entry_dte:
+                row.entry_dte,
+
+              long_strike:
+                row.long_strike,
+
+              short_strike:
+                row.short_strike,
+
+              spread_width:
+                row.spread_width,
+
+              entry_debit:
+                row.entry_debit,
+
+              exit_spread_value:
+                row.exit_spread_value,
+
+              pnl_dollars:
+                row.pnl_dollars,
+
+              return_on_debit_pct:
+                row.return_on_debit_pct,
+
+              close_path_mfe_pct:
+                row.close_path_mfe_pct,
+
+              close_path_mae_pct:
+                row.close_path_mae_pct,
+            })
+          ),
+
+        skip_examples:
+          skipExamples,
       });
 
     } catch (error) {
