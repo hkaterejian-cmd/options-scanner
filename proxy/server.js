@@ -39,6 +39,12 @@ const SCANNER_STATE_FILE =
     "scanner-state.json"
   );
 
+const FORWARD_VALIDATOR_FILE =
+  path.join(
+    SCANNER_DATA_DIR,
+    "forward-validator.json"
+  );
+
 /*
   =========================================================
   READ-ONLY ROBINHOOD TOOLS
@@ -5353,6 +5359,2331 @@ function buildExecutionStressScenario({
     trades:
       stressedRows,
   };
+}
+
+
+/*
+  =========================================================
+  FORWARD PAPER VALIDATOR
+  =========================================================
+
+  Paper-only. No Robinhood order tools are exposed.
+*/
+
+function defaultForwardValidatorState() {
+  return {
+    version: 1,
+
+    settings: {
+      enabled:
+        false,
+
+      symbol:
+        "PLTR",
+
+      holdSessions:
+        5,
+
+      targetDte:
+        9,
+
+      shortDistancePct:
+        4,
+
+      fillModel:
+        "quarter_spread",
+
+      feePerContractPerLeg:
+        0,
+
+      tickSeconds:
+        60,
+    },
+
+    lastEvaluatedAt:
+      null,
+
+    lastSignalKey:
+      null,
+
+    lastSnapshot:
+      null,
+
+    trades: [],
+  };
+}
+
+function normalizeForwardValidatorState(
+  input
+) {
+  const base =
+    defaultForwardValidatorState();
+
+  const value =
+    input &&
+    typeof input ===
+      "object" &&
+    !Array.isArray(
+      input
+    )
+      ? input
+      : {};
+
+  const settings =
+    value.settings &&
+    typeof value.settings ===
+      "object" &&
+    !Array.isArray(
+      value.settings
+    )
+      ? value.settings
+      : {};
+
+  return {
+    version: 1,
+
+    settings: {
+      enabled:
+        !!settings.enabled,
+
+      symbol:
+        normalizeTicker(
+          settings.symbol ||
+          base.settings.symbol
+        ),
+
+      holdSessions:
+        Math.max(
+          1,
+          Math.min(
+            20,
+            Math.round(
+              Number(
+                settings.holdSessions ??
+                base.settings.holdSessions
+              ) ||
+              base.settings.holdSessions
+            )
+          )
+        ),
+
+      targetDte:
+        Math.max(
+          5,
+          Math.min(
+            30,
+            Math.round(
+              Number(
+                settings.targetDte ??
+                base.settings.targetDte
+              ) ||
+              base.settings.targetDte
+            )
+          )
+        ),
+
+      shortDistancePct:
+        Math.max(
+          1,
+          Math.min(
+            15,
+            Number(
+              settings.shortDistancePct ??
+              base.settings.shortDistancePct
+            ) ||
+            base.settings.shortDistancePct
+          )
+        ),
+
+      fillModel:
+        [
+          "midpoint",
+          "quarter_spread",
+          "conservative",
+        ].includes(
+          settings.fillModel
+        )
+          ? settings.fillModel
+          : base.settings.fillModel,
+
+      feePerContractPerLeg:
+        Math.max(
+          0,
+          Number(
+            settings.feePerContractPerLeg ??
+            base.settings.feePerContractPerLeg
+          ) ||
+          0
+        ),
+
+      tickSeconds:
+        Math.max(
+          30,
+          Math.min(
+            300,
+            Math.round(
+              Number(
+                settings.tickSeconds ??
+                base.settings.tickSeconds
+              ) ||
+              base.settings.tickSeconds
+            )
+          )
+        ),
+    },
+
+    lastEvaluatedAt:
+      value.lastEvaluatedAt ||
+      null,
+
+    lastSignalKey:
+      value.lastSignalKey ||
+      null,
+
+    lastSnapshot:
+      value.lastSnapshot &&
+      typeof value.lastSnapshot ===
+        "object"
+        ? value.lastSnapshot
+        : null,
+
+    trades:
+      Array.isArray(
+        value.trades
+      )
+        ? value.trades.filter(
+            (trade) =>
+              trade &&
+              typeof trade ===
+                "object" &&
+              !Array.isArray(
+                trade
+              )
+          )
+        : [],
+  };
+}
+
+async function readForwardValidatorState() {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  try {
+    const raw =
+      await fs.readFile(
+        FORWARD_VALIDATOR_FILE,
+        "utf8"
+      );
+
+    return normalizeForwardValidatorState(
+      JSON.parse(
+        raw
+      )
+    );
+
+  } catch (error) {
+    if (
+      error?.code ===
+      "ENOENT"
+    ) {
+      return defaultForwardValidatorState();
+    }
+
+    throw error;
+  }
+}
+
+async function writeForwardValidatorState(
+  state
+) {
+  await fs.mkdir(
+    SCANNER_DATA_DIR,
+    {
+      recursive: true,
+    }
+  );
+
+  const normalized =
+    normalizeForwardValidatorState(
+      state
+    );
+
+  await fs.writeFile(
+    FORWARD_VALIDATOR_FILE,
+    JSON.stringify(
+      normalized,
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  return normalized;
+}
+
+function easternClockParts(
+  date = new Date()
+) {
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "America/New_York",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit",
+
+        weekday:
+          "short",
+
+        hour:
+          "2-digit",
+
+        minute:
+          "2-digit",
+
+        hourCycle:
+          "h23",
+      }
+    );
+
+  const parts =
+    Object.fromEntries(
+      formatter
+        .formatToParts(
+          date
+        )
+        .filter(
+          (part) =>
+            part.type !==
+            "literal"
+        )
+        .map(
+          (part) => [
+            part.type,
+            part.value,
+          ]
+        )
+    );
+
+  const hour =
+    Number(
+      parts.hour
+    );
+
+  const minute =
+    Number(
+      parts.minute
+    );
+
+  const minutes =
+    hour *
+      60 +
+    minute;
+
+  const weekday =
+    parts.weekday;
+
+  const isWeekday =
+    ![
+      "Sat",
+      "Sun",
+    ].includes(
+      weekday
+    );
+
+  return {
+    date:
+      parts.year +
+      "-" +
+      parts.month +
+      "-" +
+      parts.day,
+
+    weekday,
+
+    minutes,
+
+    regularOpen:
+      isWeekday &&
+      minutes >=
+        9 *
+          60 +
+        30 &&
+      minutes <
+        16 *
+          60,
+
+    nearClose:
+      isWeekday &&
+      minutes >=
+        15 *
+          60 +
+        55,
+
+    afterClose:
+      isWeekday &&
+      minutes >=
+        16 *
+          60 +
+        5,
+  };
+}
+
+function optionQuoteMapFromPayload(
+  payload
+) {
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  const results =
+    Array.isArray(
+      data?.results
+    )
+      ? data.results
+      : [];
+
+  const map =
+    new Map();
+
+  for (
+    const item of results
+  ) {
+    const quote =
+      item?.quote ??
+      item;
+
+    const id =
+      quote?.instrument_id ??
+      item?.instrument_id;
+
+    if (id) {
+      map.set(
+        id,
+        quote
+      );
+    }
+  }
+
+  return map;
+}
+
+function optionLegSnapshot(
+  quote
+) {
+  if (!quote) {
+    return null;
+  }
+
+  const bid =
+    finiteNumber(
+      quote.bid_price
+    );
+
+  const ask =
+    finiteNumber(
+      quote.ask_price
+    );
+
+  const mark =
+    finiteNumber(
+      quote.mark_price
+    ) ??
+    (
+      bid !==
+        null &&
+      ask !==
+        null
+        ? (
+            bid +
+            ask
+          ) /
+          2
+        : null
+    );
+
+  return {
+    bid,
+    ask,
+    mark,
+
+    iv:
+      finiteNumber(
+        quote.implied_volatility
+      ),
+
+    delta:
+      finiteNumber(
+        quote.delta
+      ),
+
+    gamma:
+      finiteNumber(
+        quote.gamma
+      ),
+
+    theta:
+      finiteNumber(
+        quote.theta
+      ),
+
+    vega:
+      finiteNumber(
+        quote.vega
+      ),
+
+    volume:
+      finiteNumber(
+        quote.volume
+      ) ??
+      0,
+
+    openInterest:
+      finiteNumber(
+        quote.open_interest
+      ) ??
+      0,
+
+    updatedAt:
+      quote.updated_at ??
+      null,
+  };
+}
+
+function clampSpreadValue(
+  value,
+  width
+) {
+  const number =
+    finiteNumber(
+      value
+    );
+
+  if (
+    number ===
+    null
+  ) {
+    return null;
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      width,
+      number
+    )
+  );
+}
+
+function verticalQuoteSnapshot({
+  longQuote,
+  shortQuote,
+  width,
+}) {
+  const long =
+    optionLegSnapshot(
+      longQuote
+    );
+
+  const short =
+    optionLegSnapshot(
+      shortQuote
+    );
+
+  if (
+    !long ||
+    !short
+  ) {
+    return null;
+  }
+
+  const midpoint =
+    long.mark !==
+      null &&
+    short.mark !==
+      null
+      ? clampSpreadValue(
+          long.mark -
+          short.mark,
+          width
+        )
+      : null;
+
+  const ask =
+    long.ask !==
+      null &&
+    short.bid !==
+      null
+      ? clampSpreadValue(
+          long.ask -
+          short.bid,
+          width
+        )
+      : null;
+
+  const bid =
+    long.bid !==
+      null &&
+    short.ask !==
+      null
+      ? clampSpreadValue(
+          long.bid -
+          short.ask,
+          width
+        )
+      : null;
+
+  return {
+    long,
+    short,
+    midpoint,
+    bid,
+    ask,
+  };
+}
+
+function simulateVerticalFill({
+  quote,
+  side,
+  model,
+}) {
+  if (!quote) {
+    return null;
+  }
+
+  const midpoint =
+    finiteNumber(
+      quote.midpoint
+    );
+
+  if (
+    midpoint ===
+    null
+  ) {
+    return null;
+  }
+
+  if (
+    model ===
+    "midpoint"
+  ) {
+    return midpoint;
+  }
+
+  if (
+    side ===
+    "entry"
+  ) {
+    const ask =
+      finiteNumber(
+        quote.ask
+      );
+
+    if (
+      ask ===
+      null
+    ) {
+      return midpoint;
+    }
+
+    if (
+      model ===
+      "conservative"
+    ) {
+      return ask;
+    }
+
+    return (
+      midpoint +
+      (
+        ask -
+        midpoint
+      ) *
+        0.25
+    );
+  }
+
+  const bid =
+    finiteNumber(
+      quote.bid
+    );
+
+  if (
+    bid ===
+    null
+  ) {
+    return midpoint;
+  }
+
+  if (
+    model ===
+    "conservative"
+  ) {
+    return bid;
+  }
+
+  return (
+    midpoint -
+    (
+      midpoint -
+      bid
+    ) *
+      0.25
+  );
+}
+
+async function loadActiveOptionInstruments({
+  symbol,
+  expiration,
+  type,
+  maxPages = 8,
+}) {
+  const instruments =
+    [];
+
+  let cursor =
+    null;
+
+  for (
+    let page =
+      0;
+    page <
+    maxPages;
+    page++
+  ) {
+    const result =
+      await callRobinhoodTool(
+        "get_option_instruments",
+        {
+          chain_symbol:
+            symbol,
+
+          expiration_dates:
+            expiration,
+
+          state:
+            "active",
+
+          type,
+
+          ...(cursor
+            ? {
+                cursor,
+              }
+            : {}),
+        }
+      );
+
+    const payload =
+      unwrapRobinhoodToolResult(
+        result
+      );
+
+    const data =
+      payload?.data ??
+      payload ??
+      {};
+
+    const pageInstruments =
+      Array.isArray(
+        data?.instruments
+      )
+        ? data.instruments
+        : [];
+
+    instruments.push(
+      ...pageInstruments
+    );
+
+    cursor =
+      data?.next ??
+      null;
+
+    if (!cursor) {
+      break;
+    }
+  }
+
+  return instruments;
+}
+
+function activeExpirationDates(
+  payload
+) {
+  const data =
+    payload?.data ??
+    payload ??
+    {};
+
+  const chains =
+    Array.isArray(
+      data?.chains
+    )
+      ? data.chains
+      : [];
+
+  return [
+    ...new Set(
+      chains.flatMap(
+        (chain) =>
+          Array.isArray(
+            chain?.expiration_dates
+          )
+            ? chain.expiration_dates
+            : []
+      )
+    ),
+  ].sort();
+}
+
+function chooseTargetExpiration({
+  dates,
+  now,
+  targetDte,
+}) {
+  const current =
+    new Date(
+      now
+    );
+
+  current.setUTCHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  return dates.find(
+    (dateText) => {
+      const expiration =
+        new Date(
+          dateText +
+          "T00:00:00Z"
+        );
+
+      const dte =
+        Math.round(
+          (
+            expiration.getTime() -
+            current.getTime()
+          ) /
+            (
+              24 *
+              60 *
+              60 *
+              1000
+            )
+        );
+
+      return dte >=
+        targetDte;
+    }
+  ) ??
+  null;
+}
+
+function latestSeriesValueOnOrBefore({
+  series,
+  date,
+  field,
+}) {
+  const usable =
+    Array.isArray(
+      series
+    )
+      ? series
+          .filter(
+            (item) => {
+              const key =
+                utcDateKey(
+                  item?.begins_at
+                );
+
+              return (
+                key &&
+                key <=
+                  date
+              );
+            }
+          )
+          .sort(
+            (a, b) =>
+              Date.parse(
+                a.begins_at
+              ) -
+              Date.parse(
+                b.begins_at
+              )
+          )
+      : [];
+
+  const latest =
+    usable[
+      usable.length -
+      1
+    ];
+
+  return finiteNumber(
+    latest?.[
+      field
+    ]
+  );
+}
+
+async function getForwardSignalSnapshot({
+  symbol,
+  now,
+}) {
+  const start =
+    new Date(
+      now.getTime() -
+      90 *
+        24 *
+        60 *
+        60 *
+        1000
+    );
+
+  const common = {
+    start_time:
+      start.toISOString(),
+
+    end_time:
+      now.toISOString(),
+
+    interval:
+      "day",
+
+    bounds:
+      "regular",
+
+    adjustment_type:
+      "split",
+  };
+
+  const [
+    quoteResult,
+    historicalResult,
+    rsiResult,
+    macdResult,
+  ] =
+    await Promise.all([
+      callRobinhoodTool(
+        "get_equity_quotes",
+        {
+          symbols: [
+            symbol,
+          ],
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_historicals",
+        {
+          symbols: [
+            symbol,
+          ],
+
+          ...common,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "rsi",
+
+          ...common,
+
+          output:
+            "series",
+
+          period:
+            14,
+        }
+      ),
+
+      callRobinhoodTool(
+        "get_equity_technical_indicators",
+        {
+          symbol,
+
+          type:
+            "macd",
+
+          ...common,
+
+          output:
+            "series",
+
+          fast_period:
+            12,
+
+          slow_period:
+            26,
+
+          signal_period:
+            9,
+        }
+      ),
+    ]);
+
+  const quotePayload =
+    unwrapRobinhoodToolResult(
+      quoteResult
+    );
+
+  const quoteData =
+    quotePayload?.data ??
+    quotePayload ??
+    {};
+
+  const quoteResultRow =
+    quoteData?.results?.[0] ??
+    null;
+
+  const quote =
+    quoteResultRow?.quote ??
+    {};
+
+  const currentPrice =
+    finiteNumber(
+      quote.last_trade_price
+    );
+
+  const previousClose =
+    finiteNumber(
+      quote.adjusted_previous_close ??
+      quoteResultRow
+        ?.close
+        ?.price ??
+      quote.previous_close
+    );
+
+  const bars =
+    extractBacktestBars(
+      unwrapRobinhoodToolResult(
+        historicalResult
+      )
+    );
+
+  const eastern =
+    easternClockParts(
+      now
+    );
+
+  const completedBars =
+    bars.filter(
+      (bar) => {
+        const date =
+          utcDateKey(
+            bar.time
+          );
+
+        return (
+          date &&
+          date <
+            eastern.date
+        );
+      }
+    );
+
+  if (
+    completedBars.length <
+    2
+  ) {
+    throw new Error(
+      "Not enough completed daily bars to evaluate the forward signal."
+    );
+  }
+
+  const signalBar =
+    completedBars[
+      completedBars.length -
+      1
+    ];
+
+  const previousBar =
+    completedBars[
+      completedBars.length -
+      2
+    ];
+
+  const signalDate =
+    utcDateKey(
+      signalBar.time
+    );
+
+  const rsiPayload =
+    unwrapRobinhoodToolResult(
+      rsiResult
+    );
+
+  const macdPayload =
+    unwrapRobinhoodToolResult(
+      macdResult
+    );
+
+  const rsiSeries =
+    rsiPayload
+      ?.data
+      ?.indicators
+      ?.[0]
+      ?.series ??
+    [];
+
+  const macdSeries =
+    macdPayload
+      ?.data
+      ?.indicators
+      ?.[0]
+      ?.series ??
+    [];
+
+  const rsi =
+    latestSeriesValueOnOrBefore({
+      series:
+        rsiSeries,
+
+      date:
+        signalDate,
+
+      field:
+        "value",
+    });
+
+  const macdHistogram =
+    latestSeriesValueOnOrBefore({
+      series:
+        macdSeries,
+
+      date:
+        signalDate,
+
+      field:
+        "histogram",
+    });
+
+  const changePct =
+    previousBar.close >
+    0
+      ? (
+          (
+            signalBar.close -
+            previousBar.close
+          ) /
+          previousBar.close
+        ) *
+        100
+      : null;
+
+  const momentum =
+    configurableMomentumSignal({
+      rsi,
+      macdHistogram,
+      changePct,
+      bullishRsi:
+        55,
+      bearishRsi:
+        45,
+      requiredSignals:
+        2,
+    });
+
+  const venueTime =
+    quote.venue_last_trade_time ??
+    null;
+
+  const quoteAgeMinutes =
+    venueTime
+      ? (
+          now.getTime() -
+          Date.parse(
+            venueTime
+          )
+        ) /
+        60000
+      : null;
+
+  return {
+    now:
+      now.toISOString(),
+
+    eastern,
+
+    signalDate,
+
+    signal:
+      momentum.signal,
+
+    bullishScore:
+      momentum.bullishScore,
+
+    bearishScore:
+      momentum.bearishScore,
+
+    rsi,
+    macdHistogram,
+    changePct,
+
+    signalClose:
+      signalBar.close,
+
+    previousClose:
+      previousBar.close,
+
+    currentPrice,
+    quotedPreviousClose:
+      previousClose,
+
+    quoteAgeMinutes,
+
+    quoteTimestamp:
+      venueTime,
+  };
+}
+
+async function buildForwardVertical({
+  symbol,
+  direction,
+  spot,
+  targetDte,
+  shortDistancePct,
+  now,
+}) {
+  const chainResult =
+    await callRobinhoodTool(
+      "get_option_chains",
+      {
+        underlying_symbol:
+          symbol,
+      }
+    );
+
+  const chainPayload =
+    unwrapRobinhoodToolResult(
+      chainResult
+    );
+
+  const expiration =
+    chooseTargetExpiration({
+      dates:
+        activeExpirationDates(
+          chainPayload
+        ),
+
+      now,
+      targetDte,
+    });
+
+  if (!expiration) {
+    throw new Error(
+      "No active option expiration met the target DTE."
+    );
+  }
+
+  const type =
+    direction ===
+    "bullish"
+      ? "call"
+      : "put";
+
+  const instruments =
+    await loadActiveOptionInstruments({
+      symbol,
+      expiration,
+      type,
+    });
+
+  const vertical =
+    chooseHistoricalVertical({
+      instruments,
+      type,
+      spot,
+      shortDistancePct,
+    });
+
+  if (!vertical) {
+    throw new Error(
+      "Could not construct the fixed ATM-to-OTM vertical."
+    );
+  }
+
+  const quoteResult =
+    await callRobinhoodTool(
+      "get_option_quotes",
+      {
+        instrument_ids: [
+          vertical.long.id,
+          vertical.short.id,
+        ],
+      }
+    );
+
+  const quotePayload =
+    unwrapRobinhoodToolResult(
+      quoteResult
+    );
+
+  const quoteMap =
+    optionQuoteMapFromPayload(
+      quotePayload
+    );
+
+  const spreadQuote =
+    verticalQuoteSnapshot({
+      longQuote:
+        quoteMap.get(
+          vertical.long.id
+        ),
+
+      shortQuote:
+        quoteMap.get(
+          vertical.short.id
+        ),
+
+      width:
+        vertical.width,
+    });
+
+  if (
+    !spreadQuote ||
+    spreadQuote.midpoint ===
+      null
+  ) {
+    throw new Error(
+      "Current option quotes were incomplete for the fixed vertical."
+    );
+  }
+
+  const expirationDate =
+    new Date(
+      expiration +
+      "T00:00:00Z"
+    );
+
+  const dte =
+    Math.round(
+      (
+        expirationDate.getTime() -
+        now.getTime()
+      ) /
+        (
+          24 *
+          60 *
+          60 *
+          1000
+        )
+    );
+
+  return {
+    type,
+    expiration,
+    dte,
+
+    long: {
+      id:
+        vertical.long.id,
+
+      strike:
+        vertical.long.strike,
+    },
+
+    short: {
+      id:
+        vertical.short.id,
+
+      strike:
+        vertical.short.strike,
+    },
+
+    width:
+      vertical.width,
+
+    quote:
+      spreadQuote,
+  };
+}
+
+async function historicalForwardExit({
+  trade,
+  exitDate,
+}) {
+  const start =
+    new Date(
+      exitDate +
+      "T00:00:00Z"
+    );
+
+  const end =
+    addUtcDays(
+      start,
+      2
+    );
+
+  const result =
+    await callRobinhoodTool(
+      "get_option_historicals",
+      {
+        instrument_ids: [
+          trade.longOptionId,
+          trade.shortOptionId,
+        ],
+
+        start_time:
+          start.toISOString(),
+
+        end_time:
+          end.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+      }
+    );
+
+  const payload =
+    unwrapRobinhoodToolResult(
+      result
+    );
+
+  const results =
+    extractOptionHistoricalResults(
+      payload
+    );
+
+  const longResult =
+    results.find(
+      (item) =>
+        item.instrument_id ===
+        trade.longOptionId
+    );
+
+  const shortResult =
+    results.find(
+      (item) =>
+        item.instrument_id ===
+        trade.shortOptionId
+    );
+
+  const longBar =
+    normalizeOptionBars(
+      longResult
+    ).find(
+      (bar) =>
+        bar.date ===
+        exitDate
+    );
+
+  const shortBar =
+    normalizeOptionBars(
+      shortResult
+    ).find(
+      (bar) =>
+        bar.date ===
+        exitDate
+    );
+
+  if (
+    !longBar ||
+    !shortBar
+  ) {
+    return null;
+  }
+
+  const value =
+    clampSpreadValue(
+      longBar.close -
+      shortBar.close,
+      trade.width
+    );
+
+  return {
+    midpoint:
+      value,
+
+    fill:
+      value,
+
+    source:
+      "historical_daily_close",
+
+    exitTimestamp:
+      exitDate +
+      "T20:00:00Z",
+  };
+}
+
+function summarizeForwardValidator(
+  state
+) {
+  const trades =
+    Array.isArray(
+      state?.trades
+    )
+      ? state.trades
+      : [];
+
+  const open =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  const closed =
+    trades.filter(
+      (trade) =>
+        trade.status ===
+        "closed"
+    );
+
+  const wins =
+    closed.filter(
+      (trade) =>
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ) >
+        0
+    );
+
+  const losses =
+    closed.filter(
+      (trade) =>
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ) <
+        0
+    );
+
+  const grossProfit =
+    wins.reduce(
+      (
+        total,
+        trade
+      ) =>
+        total +
+        (
+          finiteNumber(
+            trade.realizedPL
+          ) ??
+          0
+        ),
+      0
+    );
+
+  const grossLoss =
+    Math.abs(
+      losses.reduce(
+        (
+          total,
+          trade
+        ) =>
+          total +
+          (
+            finiteNumber(
+              trade.realizedPL
+            ) ??
+            0
+        ),
+      0
+    );
+
+  let cumulative =
+    0;
+
+  let peak =
+    0;
+
+  let maxDrawdown =
+    0;
+
+  for (
+    const trade of closed
+  ) {
+    cumulative +=
+      finiteNumber(
+        trade.realizedPL
+      ) ??
+      0;
+
+    peak =
+      Math.max(
+        peak,
+        cumulative
+      );
+
+    maxDrawdown =
+      Math.min(
+        maxDrawdown,
+        cumulative -
+        peak
+      );
+  }
+
+  return {
+    total_trades:
+      trades.length,
+
+    open_trades:
+      open.length,
+
+    closed_trades:
+      closed.length,
+
+    wins:
+      wins.length,
+
+    losses:
+      losses.length,
+
+    win_rate_pct:
+      closed.length
+        ? (
+            wins.length /
+            closed.length
+          ) *
+          100
+        : null,
+
+    total_pl:
+      cumulative,
+
+    average_pl:
+      averageNumbers(
+        closed.map(
+          (trade) =>
+            finiteNumber(
+              trade.realizedPL
+            )
+        )
+      ),
+
+    profit_factor:
+      grossLoss >
+      0
+        ? grossProfit /
+          grossLoss
+        : grossProfit >
+            0
+          ? null
+          : null,
+
+    max_drawdown:
+      maxDrawdown,
+
+    average_entry_slippage_cents:
+      averageNumbers(
+        trades.map(
+          (trade) =>
+            finiteNumber(
+              trade.entrySlippageCents
+            )
+        )
+      ),
+
+    average_exit_slippage_cents:
+      averageNumbers(
+        closed.map(
+          (trade) =>
+            finiteNumber(
+              trade.exitSlippageCents
+            )
+        )
+      ),
+  };
+}
+
+async function updateForwardOpenTrades({
+  state,
+  now,
+}) {
+  const openTrades =
+    state.trades.filter(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  if (!openTrades.length) {
+    return state;
+  }
+
+  const ids =
+    [
+      ...new Set(
+        openTrades.flatMap(
+          (trade) => [
+            trade.longOptionId,
+            trade.shortOptionId,
+          ]
+        )
+      ),
+    ];
+
+  const quoteResult =
+    await callRobinhoodTool(
+      "get_option_quotes",
+      {
+        instrument_ids:
+          ids,
+      }
+    );
+
+  const quoteMap =
+    optionQuoteMapFromPayload(
+      unwrapRobinhoodToolResult(
+        quoteResult
+      )
+    );
+
+  const earliest =
+    openTrades
+      .map(
+        (trade) =>
+          Date.parse(
+            trade.entryTimestamp
+          )
+      )
+      .filter(
+        Number.isFinite
+      )
+      .reduce(
+        (
+          min,
+          value
+        ) =>
+          Math.min(
+            min,
+            value
+          ),
+        now.getTime()
+      );
+
+  const historicalResult =
+    await callRobinhoodTool(
+      "get_equity_historicals",
+      {
+        symbols: [
+          state.settings.symbol,
+        ],
+
+        start_time:
+          new Date(
+            earliest -
+            2 *
+              24 *
+              60 *
+              60 *
+              1000
+          ).toISOString(),
+
+        end_time:
+          now.toISOString(),
+
+        interval:
+          "day",
+
+        bounds:
+          "regular",
+
+        adjustment_type:
+          "split",
+      }
+    );
+
+  const equityBars =
+    extractBacktestBars(
+      unwrapRobinhoodToolResult(
+        historicalResult
+      )
+    );
+
+  const eastern =
+    easternClockParts(
+      now
+    );
+
+  const completedBars =
+    equityBars.filter(
+      (bar) => {
+        const date =
+          utcDateKey(
+            bar.time
+          );
+
+        return (
+          date <
+            eastern.date ||
+          (
+            date ===
+              eastern.date &&
+            eastern.afterClose
+          )
+        );
+      }
+    );
+
+  const updatedTrades =
+    [];
+
+  for (
+    const trade of state.trades
+  ) {
+    if (
+      trade.status !==
+      "open"
+    ) {
+      updatedTrades.push(
+        trade
+      );
+
+      continue;
+    }
+
+    const quote =
+      verticalQuoteSnapshot({
+        longQuote:
+          quoteMap.get(
+            trade.longOptionId
+          ),
+
+        shortQuote:
+          quoteMap.get(
+            trade.shortOptionId
+          ),
+
+        width:
+          trade.width,
+      });
+
+    const currentMidpoint =
+      finiteNumber(
+        quote?.midpoint
+      );
+
+    const theoreticalPL =
+      currentMidpoint !==
+        null
+        ? (
+            currentMidpoint -
+            trade.entryFill
+          ) *
+          100
+        : null;
+
+    const nextTrade = {
+      ...trade,
+
+      lastMarkedAt:
+        now.toISOString(),
+
+      currentMidpoint,
+
+      currentTheoreticalPL:
+        theoreticalPL,
+
+      maxFavorablePL:
+        theoreticalPL !==
+          null
+          ? Math.max(
+              finiteNumber(
+                trade.maxFavorablePL
+              ) ??
+              0,
+              theoreticalPL
+            )
+          : trade.maxFavorablePL,
+
+      maxAdversePL:
+        theoreticalPL !==
+          null
+          ? Math.min(
+              finiteNumber(
+                trade.maxAdversePL
+              ) ??
+              0,
+              theoreticalPL
+            )
+          : trade.maxAdversePL,
+    };
+
+    const entryDate =
+      utcDateKey(
+        trade.entryTimestamp
+      );
+
+    const sessionBars =
+      completedBars.filter(
+        (bar) =>
+          utcDateKey(
+            bar.time
+          ) >=
+          entryDate
+      );
+
+    if (
+      sessionBars.length <
+      state.settings
+        .holdSessions
+    ) {
+      updatedTrades.push(
+        nextTrade
+      );
+
+      continue;
+    }
+
+    const exitBar =
+      sessionBars[
+        state.settings
+          .holdSessions -
+        1
+      ];
+
+    const exitDate =
+      utcDateKey(
+        exitBar.time
+      );
+
+    let exit =
+      null;
+
+    if (
+      exitDate ===
+        eastern.date &&
+      eastern.nearClose &&
+      quote
+    ) {
+      const fill =
+        simulateVerticalFill({
+          quote,
+          side:
+            "exit",
+          model:
+            state.settings
+              .fillModel,
+        });
+
+      if (
+        fill !==
+        null
+      ) {
+        exit = {
+          midpoint:
+            quote.midpoint,
+
+          fill,
+
+          source:
+            "live_near_close",
+
+          exitTimestamp:
+            now.toISOString(),
+        };
+      }
+    }
+
+    if (!exit) {
+      exit =
+        await historicalForwardExit({
+          trade,
+          exitDate,
+        });
+    }
+
+    if (!exit) {
+      updatedTrades.push(
+        nextTrade
+      );
+
+      continue;
+    }
+
+    const fee =
+      state.settings
+        .feePerContractPerLeg *
+      4;
+
+    const realizedPL =
+      (
+        exit.fill -
+        trade.entryFill
+      ) *
+        100 -
+      fee;
+
+    const exitSlippageCents =
+      exit.midpoint !==
+        null &&
+      exit.fill !==
+        null
+        ? (
+            exit.midpoint -
+            exit.fill
+          ) *
+          100
+        : null;
+
+    updatedTrades.push({
+      ...nextTrade,
+
+      status:
+        "closed",
+
+      exitDate,
+
+      exitTimestamp:
+        exit.exitTimestamp,
+
+      exitSource:
+        exit.source,
+
+      exitMidpoint:
+        exit.midpoint,
+
+      exitFill:
+        exit.fill,
+
+      exitSlippageCents,
+
+      totalFees:
+        fee,
+
+      realizedPL,
+
+      realizedReturnPct:
+        trade.entryFill >
+        0
+          ? (
+              realizedPL /
+              (
+                trade.entryFill *
+                100
+              )
+            ) *
+            100
+          : null,
+    });
+  }
+
+  return {
+    ...state,
+    trades:
+      updatedTrades,
+  };
+}
+
+async function maybeOpenForwardTrade({
+  state,
+  snapshot,
+  now,
+}) {
+  const settings =
+    state.settings;
+
+  if (
+    !settings.enabled ||
+    !snapshot.eastern
+      ?.regularOpen ||
+    snapshot.quoteAgeMinutes ===
+      null ||
+    snapshot.quoteAgeMinutes >
+      30 ||
+    snapshot.currentPrice ===
+      null
+  ) {
+    return state;
+  }
+
+  if (
+    ![
+      "bullish",
+      "bearish",
+    ].includes(
+      snapshot.signal
+    )
+  ) {
+    return state;
+  }
+
+  const signalKey =
+    snapshot.signalDate +
+    "|" +
+    snapshot.signal;
+
+  const alreadyUsed =
+    state.trades.some(
+      (trade) =>
+        trade.signalKey ===
+        signalKey
+    );
+
+  const hasOpenTrade =
+    state.trades.some(
+      (trade) =>
+        trade.status ===
+        "open"
+    );
+
+  if (
+    alreadyUsed ||
+    hasOpenTrade
+  ) {
+    return {
+      ...state,
+      lastSignalKey:
+        signalKey,
+    };
+  }
+
+  const vertical =
+    await buildForwardVertical({
+      symbol:
+        settings.symbol,
+
+      direction:
+        snapshot.signal,
+
+      spot:
+        snapshot.currentPrice,
+
+      targetDte:
+        settings.targetDte,
+
+      shortDistancePct:
+        settings.shortDistancePct,
+
+      now,
+    });
+
+  const entryFill =
+    simulateVerticalFill({
+      quote:
+        vertical.quote,
+
+      side:
+        "entry",
+
+      model:
+        settings.fillModel,
+    });
+
+  if (
+    entryFill ===
+      null ||
+    entryFill <=
+      0 ||
+    entryFill >=
+      vertical.width
+  ) {
+    return state;
+  }
+
+  const entrySlippageCents =
+    (
+      entryFill -
+      vertical.quote
+        .midpoint
+    ) *
+    100;
+
+  const trade = {
+    id:
+      crypto.randomUUID(),
+
+    validatorVersion:
+      1,
+
+    status:
+      "open",
+
+    symbol:
+      settings.symbol,
+
+    signalKey,
+
+    signalDate:
+      snapshot.signalDate,
+
+    signal:
+      snapshot.signal,
+
+    entryTimestamp:
+      now.toISOString(),
+
+    entryMinutesAfterMarketOpen:
+      Math.max(
+        0,
+        snapshot.eastern.minutes -
+          (
+            9 *
+              60 +
+            30
+          )
+      ),
+
+    entryUnderlyingPrice:
+      snapshot.currentPrice,
+
+    entryRsi:
+      snapshot.rsi,
+
+    entryMacdHistogram:
+      snapshot.macdHistogram,
+
+    entryDailyChangePct:
+      snapshot.changePct,
+
+    bullishScore:
+      snapshot.bullishScore,
+
+    bearishScore:
+      snapshot.bearishScore,
+
+    optionType:
+      vertical.type,
+
+    expiration:
+      vertical.expiration,
+
+    entryDte:
+      vertical.dte,
+
+    longOptionId:
+      vertical.long.id,
+
+    shortOptionId:
+      vertical.short.id,
+
+    longStrike:
+      vertical.long.strike,
+
+    shortStrike:
+      vertical.short.strike,
+
+    width:
+      vertical.width,
+
+    fillModel:
+      settings.fillModel,
+
+    entryMidpoint:
+      vertical.quote
+        .midpoint,
+
+    entryBid:
+      vertical.quote.bid,
+
+    entryAsk:
+      vertical.quote.ask,
+
+    entryFill,
+
+    entrySlippageCents,
+
+    entryLong:
+      vertical.quote.long,
+
+    entryShort:
+      vertical.quote.short,
+
+    currentMidpoint:
+      vertical.quote
+        .midpoint,
+
+    currentTheoreticalPL:
+      0,
+
+    maxFavorablePL:
+      0,
+
+    maxAdversePL:
+      0,
+
+    lastMarkedAt:
+      now.toISOString(),
+  };
+
+  return {
+    ...state,
+
+    lastSignalKey:
+      signalKey,
+
+    trades: [
+      ...state.trades,
+      trade,
+    ],
+  };
+}
+
+async function runForwardValidatorTick(
+  state
+) {
+  const now =
+    new Date();
+
+  let next =
+    await updateForwardOpenTrades({
+      state,
+      now,
+    });
+
+  const snapshot =
+    await getForwardSignalSnapshot({
+      symbol:
+        next.settings.symbol,
+
+      now,
+    });
+
+  next = {
+    ...next,
+
+    lastEvaluatedAt:
+      now.toISOString(),
+
+    lastSnapshot:
+      snapshot,
+  };
+
+  next =
+    await maybeOpenForwardTrade({
+      state:
+        next,
+
+      snapshot,
+      now,
+    });
+
+  return writeForwardValidatorState(
+    next
+  );
 }
 
 /*
@@ -14049,6 +16380,128 @@ app.post(
   }
 );
 
+
+
+app.get(
+  "/scanner/forward-validator",
+
+  async (_req, res) => {
+    try {
+      const state =
+        await readForwardValidatorState();
+
+      return res.json({
+        ...state,
+
+        summary:
+          summarizeForwardValidator(
+            state
+          ),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.put(
+  "/scanner/forward-validator/settings",
+
+  async (req, res) => {
+    try {
+      const current =
+        await readForwardValidatorState();
+
+      const incoming =
+        req.body
+          ?.settings &&
+        typeof req.body
+          .settings ===
+          "object"
+          ? req.body
+              .settings
+          : {};
+
+      const next =
+        await writeForwardValidatorState({
+          ...current,
+
+          settings: {
+            ...current.settings,
+
+            ...incoming,
+          },
+        });
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeForwardValidator(
+            next
+          ),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return res
+        .status(500)
+        .json({
+          error:
+            safeErrorMessage(
+              error
+            ),
+        });
+    }
+  }
+);
+
+app.post(
+  "/scanner/forward-validator/tick",
+
+  async (_req, res) => {
+    try {
+      const current =
+        await readForwardValidatorState();
+
+      const next =
+        await runForwardValidatorTick(
+          current
+        );
+
+      return res.json({
+        ...next,
+
+        summary:
+          summarizeForwardValidator(
+            next
+          ),
+
+        paper_only:
+          true,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
 
 app.get(
   "/scanner/paper-analytics",
