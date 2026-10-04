@@ -5196,6 +5196,165 @@ function buildOptionCoverageDetail({
   };
 }
 
+
+function stressOptionReplayTrade({
+  trade,
+  roundTripFrictionCents,
+  feePerContractPerLeg,
+}) {
+  const totalFrictionPoints =
+    Math.max(
+      0,
+      Number(
+        roundTripFrictionCents
+      ) ||
+      0
+    ) /
+    100;
+
+  const entryFrictionPoints =
+    totalFrictionPoints /
+    2;
+
+  const exitFrictionPoints =
+    totalFrictionPoints /
+    2;
+
+  const stressedEntryDebit =
+    Math.max(
+      0,
+      (
+        finiteNumber(
+          trade.entry_debit
+        ) ??
+        0
+      ) +
+      entryFrictionPoints
+    );
+
+  const stressedExitValue =
+    Math.max(
+      0,
+      (
+        finiteNumber(
+          trade.exit_spread_value
+        ) ??
+        0
+      ) -
+      exitFrictionPoints
+    );
+
+  const feePerLeg =
+    Math.max(
+      0,
+      Number(
+        feePerContractPerLeg
+      ) ||
+      0
+    );
+
+  const totalFees =
+    feePerLeg *
+    4;
+
+  const pnlDollars =
+    (
+      stressedExitValue -
+      stressedEntryDebit
+    ) *
+      100 -
+    totalFees;
+
+  const returnOnDebitPct =
+    stressedEntryDebit >
+    0
+      ? (
+          pnlDollars /
+          (
+            stressedEntryDebit *
+            100
+          )
+        ) *
+        100
+      : null;
+
+  return {
+    ...trade,
+
+    round_trip_friction_cents:
+      totalFrictionPoints *
+      100,
+
+    entry_friction_points:
+      entryFrictionPoints,
+
+    exit_friction_points:
+      exitFrictionPoints,
+
+    fee_per_contract_per_leg:
+      feePerLeg,
+
+    estimated_total_fees:
+      totalFees,
+
+    stressed_entry_debit:
+      stressedEntryDebit,
+
+    stressed_exit_value:
+      stressedExitValue,
+
+    pnl_dollars:
+      pnlDollars,
+
+    return_on_debit_pct:
+      returnOnDebitPct,
+
+    favorable:
+      pnlDollars >
+      0,
+  };
+}
+
+function summarizeExecutionStress(
+  trades
+) {
+  return summarizeOptionReplay(
+    trades
+  );
+}
+
+function buildExecutionStressScenario({
+  rows,
+  roundTripFrictionCents,
+  feePerContractPerLeg,
+}) {
+  const stressedRows =
+    rows.map(
+      (trade) =>
+        stressOptionReplayTrade({
+          trade,
+          roundTripFrictionCents,
+          feePerContractPerLeg,
+        })
+    );
+
+  return {
+    round_trip_friction_cents:
+      roundTripFrictionCents,
+
+    fee_per_contract_per_leg:
+      feePerContractPerLeg,
+
+    summary:
+      summarizeExecutionStress(
+        stressedRows
+      ),
+
+    trades:
+      stressedRows,
+  };
+}
+
 /*
   =========================================================
   PAPER TRADE ANALYTICS
@@ -13446,6 +13605,439 @@ app.post(
 
         skip_examples:
           skipExamples,
+      });
+
+    } catch (error) {
+      return handleRobinhoodError(
+        error,
+        res
+      );
+    }
+  }
+);
+
+
+
+app.post(
+  "/scanner/option-execution-stress",
+
+  async (req, res) => {
+    try {
+      const symbol =
+        normalizeTicker(
+          req.body
+            ?.symbol
+        );
+
+      const lookbackDays =
+        clampNumber(
+          req.body
+            ?.lookbackDays,
+          365,
+          730,
+          730
+        );
+
+      const trainCoverageDates =
+        clampNumber(
+          req.body
+            ?.trainCoverageDates,
+          12,
+          90,
+          60
+        );
+
+      const validationCoverageDates =
+        clampNumber(
+          req.body
+            ?.validationCoverageDates,
+          6,
+          45,
+          24
+        );
+
+      const testCoverageDates =
+        clampNumber(
+          req.body
+            ?.testCoverageDates,
+          4,
+          24,
+          8
+        );
+
+      const maxSignalsPerHold =
+        clampNumber(
+          req.body
+            ?.maxSignalsPerHold,
+          20,
+          80,
+          60
+        );
+
+      const feePerContractPerLeg =
+        Math.max(
+          0,
+          Number(
+            req.body
+              ?.feePerContractPerLeg ??
+            0
+          ) ||
+          0
+        );
+
+      const frictionTiers =
+        Array.isArray(
+          req.body
+            ?.frictionTiers
+        )
+          ? req.body
+              .frictionTiers
+              .map(
+                (value) =>
+                  Math.max(
+                    0,
+                    Math.min(
+                      200,
+                      Number(
+                        value
+                      ) ||
+                      0
+                    )
+                  )
+              )
+              .filter(
+                (
+                  value,
+                  index,
+                  array
+                ) =>
+                  array.indexOf(
+                    value
+                  ) ===
+                  index
+              )
+          : [
+              0,
+              5,
+              10,
+              25,
+              50,
+            ];
+
+      const holdVariants = [
+        1,
+        3,
+        5,
+        10,
+      ];
+
+      const targetDteVariants = [
+        7,
+        9,
+        14,
+        21,
+      ];
+
+      const shortDistanceVariants = [
+        2,
+        4,
+        6,
+        8,
+      ];
+
+      const dataset =
+        await buildOptionReplayRows({
+          symbol,
+          lookbackDays,
+          maxSignalsPerHold,
+          holdVariants,
+          targetDteVariants,
+          shortDistanceVariants,
+        });
+
+      const {
+        rowsByVariant,
+        coverage,
+      } = dataset;
+
+      const coverageDetail =
+        buildOptionCoverageDetail({
+          rowsByVariant,
+          coverage,
+        });
+
+      const coverageDates =
+        coverageDetail
+          .coverage_dates;
+
+      const baselineDefinition = {
+        directionMode:
+          "both",
+
+        holdDays:
+          5,
+
+        targetDte:
+          9,
+
+        shortDistancePct:
+          4,
+      };
+
+      const baselineKey =
+        optionReplayVariantKey({
+          holdDays:
+            baselineDefinition
+              .holdDays,
+
+          targetDte:
+            baselineDefinition
+              .targetDte,
+
+          shortDistancePct:
+            baselineDefinition
+              .shortDistancePct,
+        });
+
+      const baselineRows =
+        rowsByVariant.get(
+          baselineKey
+        ) ??
+        [];
+
+      const oosRows =
+        [];
+
+      let trainDateCount =
+        trainCoverageDates;
+
+      let foldIndex =
+        1;
+
+      while (
+        trainDateCount +
+          validationCoverageDates +
+          testCoverageDates <=
+        coverageDates.length
+      ) {
+        const testDates =
+          coverageDates.slice(
+            trainDateCount +
+              validationCoverageDates,
+            trainDateCount +
+              validationCoverageDates +
+              testCoverageDates
+          );
+
+        const testDateSet =
+          new Set(
+            testDates
+          );
+
+        const foldRows =
+          baselineRows.filter(
+            (row) =>
+              testDateSet.has(
+                utcDateKey(
+                  row.signal_time
+                )
+              )
+          );
+
+        oosRows.push(
+          ...foldRows.map(
+            (row) => ({
+              ...row,
+
+              execution_stress_fold:
+                foldIndex,
+            })
+          )
+        );
+
+        trainDateCount +=
+          testCoverageDates;
+
+        foldIndex +=
+          1;
+      }
+
+      oosRows.sort(
+        (a, b) =>
+          Date.parse(
+            a.exit_time
+          ) -
+          Date.parse(
+            b.exit_time
+          )
+      );
+
+      const scenarios =
+        frictionTiers.map(
+          (roundTripFrictionCents) =>
+            buildExecutionStressScenario({
+              rows:
+                oosRows,
+
+              roundTripFrictionCents,
+              feePerContractPerLeg,
+            })
+        );
+
+      const rawSummary =
+        summarizeOptionReplay(
+          oosRows
+        );
+
+      const averageRawPnl =
+        finiteNumber(
+          rawSummary
+            .average_pnl_dollars
+        );
+
+      const totalRoundTripFees =
+        feePerContractPerLeg *
+        4;
+
+      const approximateBreakEvenFrictionCents =
+        averageRawPnl !==
+          null
+          ? Math.max(
+              0,
+              averageRawPnl -
+                totalRoundTripFees
+            )
+          : null;
+
+      const positiveScenarios =
+        scenarios.filter(
+          (scenario) =>
+            (
+              scenario.summary
+                ?.average_pnl_dollars ??
+              0
+            ) >
+              0 &&
+            (
+              scenario.summary
+                ?.profit_factor ??
+              0
+            ) >
+              1
+        );
+
+      return res.json({
+        generated_at:
+          new Date().toISOString(),
+
+        engine:
+          "option_execution_stress_v1",
+
+        symbol,
+
+        baseline_structure: {
+          direction_mode:
+            "both",
+
+          hold_sessions:
+            5,
+
+          target_dte:
+            9,
+
+          short_distance_pct:
+            4,
+        },
+
+        methodology: {
+          sample:
+            "Uses the same coverage-aware unseen test blocks as the fixed PLTR option baseline: 5-session hold, target 9 DTE, short leg 4% OTM.",
+
+          friction:
+            "Round-trip spread friction is split equally between entry and exit. For example, 10 cents round-trip adds 5 cents to the entry debit and subtracts 5 cents from the exit spread value.",
+
+          fees:
+            "Fee input is dollars per contract per leg. A one-lot vertical incurs four contract-leg events round trip: two legs on entry and two on exit.",
+
+          caution:
+            "Historical synchronized bid/ask quotes are unavailable in this replay, so these are execution stress assumptions layered on historical option trade-price OHLC.",
+        },
+
+        parameters: {
+          lookback_days:
+            lookbackDays,
+
+          train_coverage_dates:
+            trainCoverageDates,
+
+          validation_coverage_dates:
+            validationCoverageDates,
+
+          test_coverage_dates:
+            testCoverageDates,
+
+          max_signals_per_hold:
+            maxSignalsPerHold,
+
+          fee_per_contract_per_leg:
+            feePerContractPerLeg,
+
+          friction_tiers_cents:
+            frictionTiers,
+        },
+
+        coverage,
+
+        coverage_detail:
+          coverageDetail,
+
+        oos_trade_count:
+          oosRows.length,
+
+        raw_summary:
+          rawSummary,
+
+        scenarios:
+          scenarios.map(
+            (scenario) => ({
+              round_trip_friction_cents:
+                scenario
+                  .round_trip_friction_cents,
+
+              fee_per_contract_per_leg:
+                scenario
+                  .fee_per_contract_per_leg,
+
+              summary:
+                scenario.summary,
+            })
+          ),
+
+        approximate_break_even_round_trip_friction_cents:
+          approximateBreakEvenFrictionCents,
+
+        largest_positive_stress_tier_cents:
+          positiveScenarios.length
+            ? Math.max(
+                ...positiveScenarios.map(
+                  (scenario) =>
+                    scenario
+                      .round_trip_friction_cents
+                )
+              )
+            : null,
+
+        stressed_trade_examples:
+          scenarios.find(
+            (scenario) =>
+              scenario
+                .round_trip_friction_cents ===
+              10
+          )?.trades
+            ?.slice(
+              -12
+            ) ??
+          [],
       });
 
     } catch (error) {
