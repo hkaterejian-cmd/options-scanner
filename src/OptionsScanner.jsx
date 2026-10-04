@@ -9797,7 +9797,7 @@ function OptionSpreadWalkForwardPanel({
         </div>
 
         <div className="mt-3 rounded-lg border border-teal-500/15 bg-teal-500/[0.02] p-3 text-[9px] leading-relaxed text-zinc-500">
-          Coverage-aware mode uses actual replayable option-signal dates rather than empty calendar windows. The 20 / 8 / 6 defaults mean the first fold uses 20 replayable signal dates for training, the next 8 for validation, and the next 6 for the unseen test.
+          Coverage-aware mode uses actual replayable option-signal dates rather than empty calendar windows. The defaults now use 60 replayable signal dates for training, 24 for validation, and 8 for the unseen test, with up to 60 sampled signals per hold. The actual eligibility floor remains 20 training replays and 8 validation replays.
         </div>
 
         {error && (
@@ -9816,6 +9816,12 @@ function OptionSpreadWalkForwardPanel({
                 {result.methodology?.pricing}
               </span>
             </div>
+
+            {summary.completed_folds === 0 && (
+              <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3 text-[9px] leading-relaxed text-amber-200">
+                No structure qualified in the previous coverage windows. This usually means each individual hold/DTE/width variant did not accumulate 20 actual training replays and 8 actual validation replays, even though the combined dataset is large. Increase coverage-window signal dates and sampled signals per hold rather than lowering the eligibility standards.
+              </div>
+            )}
 
             <div className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/[0.02] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -11129,16 +11135,16 @@ export default function OptionsScanner() {
         730,
 
       trainCoverageDates:
-        20,
+        60,
 
       validationCoverageDates:
-        8,
+        24,
 
       testCoverageDates:
-        6,
+        8,
 
       maxSignalsPerHold:
-        40,
+        60,
     });
 
   const scanInProgressRef =
